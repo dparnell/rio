@@ -56,7 +56,7 @@ use crate::cursor::Cursor;
 use crate::dpi::{PhysicalPosition, PhysicalSize, Position, Size};
 use crate::error::{ExternalError, NotSupportedError, OsError as RootOsError};
 use crate::icon::Icon;
-use crate::platform::windows::{BackdropType, Color, CornerPreference};
+use crate::platform::windows::{BackdropType, Color, CornerPreference, TitlebarLayout};
 use crate::platform_impl::platform::dark_mode::try_theme;
 use crate::platform_impl::platform::definitions::{
     CLSID_TaskbarList, IID_ITaskbarList, IID_ITaskbarList2, ITaskbarList, ITaskbarList2,
@@ -633,60 +633,12 @@ impl Window {
                 point
             };
 
-            // get the current system menu
-            let h_menu = GetSystemMenu(self.hwnd(), 0);
-            if h_menu.is_null() {
-                warn!("The corresponding window doesn't have a system menu");
-                // This situation should not be treated as an error so just return without showing
-                // menu.
-                return;
-            }
-
-            fn enable(b: bool) -> MENU_ITEM_STATE {
-                if b {
-                    MFS_ENABLED
-                } else {
-                    MFS_DISABLED
-                }
-            }
-
-            // Change the menu items according to the current window status.
-
-            let restore_btn = enable(self.is_maximized() && self.is_resizable());
-            let size_btn = enable(!self.is_maximized() && self.is_resizable());
-            let maximize_btn = enable(!self.is_maximized() && self.is_resizable());
-
-            EnableMenuItem(h_menu, SC_RESTORE, MF_BYCOMMAND | restore_btn);
-            EnableMenuItem(h_menu, SC_MOVE, MF_BYCOMMAND | enable(!self.is_maximized()));
-            EnableMenuItem(h_menu, SC_SIZE, MF_BYCOMMAND | size_btn);
-            EnableMenuItem(h_menu, SC_MINIMIZE, MF_BYCOMMAND | MFS_ENABLED);
-            EnableMenuItem(h_menu, SC_MAXIMIZE, MF_BYCOMMAND | maximize_btn);
-            EnableMenuItem(h_menu, SC_CLOSE, MF_BYCOMMAND | MFS_ENABLED);
-
-            // Set the default menu item.
-            SetMenuDefaultItem(h_menu, SC_CLOSE, 0);
-
-            // Popup the system menu at the position.
-            let result = TrackPopupMenu(
-                h_menu,
-                TPM_RETURNCMD | TPM_LEFTALIGN, /* for now im using LTR, but we have to use user
-                                                * layout direction */
-                point.x,
-                point.y,
-                0,
+            show_system_menu(
                 self.hwnd(),
-                std::ptr::null_mut(),
+                point,
+                self.is_maximized(),
+                self.is_resizable(),
             );
-
-            if result == 0 {
-                // User canceled the menu, no need to continue.
-                return;
-            }
-
-            // Send the command that the user select to the corresponding window.
-            if PostMessageW(self.hwnd(), WM_SYSCOMMAND, result as _, 0) == 0 {
-                warn!("Can't post the system menu message to the window.");
-            }
         }
     }
 
@@ -1099,6 +1051,31 @@ impl Window {
     }
 
     #[inline]
+    pub fn set_custom_titlebar(&self, custom: bool) {
+        let window = self.window;
+        let window_state = Arc::clone(&self.window_state);
+
+        self.thread_executor.execute_in_thread(move || {
+            let _ = &window;
+            WindowState::set_window_flags(
+                window_state.lock().unwrap(),
+                window.hwnd(),
+                |f| f.set(WindowFlags::MARKER_CUSTOM_TITLEBAR, custom),
+            );
+        });
+    }
+
+    #[inline]
+    pub fn has_custom_titlebar(&self) -> bool {
+        self.window_state_lock().window_flags.has_custom_titlebar()
+    }
+
+    #[inline]
+    pub fn set_titlebar_layout(&self, layout: TitlebarLayout) {
+        self.window_state_lock().titlebar.layout = layout;
+    }
+
+    #[inline]
     pub fn set_undecorated_shadow(&self, shadow: bool) {
         let window = self.window;
         let window_state = Arc::clone(&self.window_state);
@@ -1244,6 +1221,72 @@ impl Drop for Window {
             // The window must be destroyed from the same thread that created it, so we send a
             // custom message to be handled by our callback to do the actual work.
             PostMessageW(self.hwnd(), DESTROY_MSG_ID.get(), 0, 0);
+        }
+    }
+}
+
+/// Pop up the system menu at a point in screen coordinates and run whatever
+/// the user picks from it.
+pub(super) unsafe fn show_system_menu(
+    hwnd: HWND,
+    point: POINT,
+    maximized: bool,
+    resizable: bool,
+) {
+    unsafe {
+        // get the current system menu
+        let h_menu = GetSystemMenu(hwnd, 0);
+        if h_menu.is_null() {
+            warn!("The corresponding window doesn't have a system menu");
+            // This situation should not be treated as an error so just return without showing
+            // menu.
+            return;
+        }
+
+        fn enable(b: bool) -> MENU_ITEM_STATE {
+            if b {
+                MFS_ENABLED
+            } else {
+                MFS_DISABLED
+            }
+        }
+
+        // Change the menu items according to the current window status.
+
+        let restore_btn = enable(maximized && resizable);
+        let size_btn = enable(!maximized && resizable);
+        let maximize_btn = enable(!maximized && resizable);
+
+        EnableMenuItem(h_menu, SC_RESTORE, MF_BYCOMMAND | restore_btn);
+        EnableMenuItem(h_menu, SC_MOVE, MF_BYCOMMAND | enable(!maximized));
+        EnableMenuItem(h_menu, SC_SIZE, MF_BYCOMMAND | size_btn);
+        EnableMenuItem(h_menu, SC_MINIMIZE, MF_BYCOMMAND | MFS_ENABLED);
+        EnableMenuItem(h_menu, SC_MAXIMIZE, MF_BYCOMMAND | maximize_btn);
+        EnableMenuItem(h_menu, SC_CLOSE, MF_BYCOMMAND | MFS_ENABLED);
+
+        // Set the default menu item.
+        SetMenuDefaultItem(h_menu, SC_CLOSE, 0);
+
+        // Popup the system menu at the position.
+        let result = TrackPopupMenu(
+            h_menu,
+            TPM_RETURNCMD | TPM_LEFTALIGN, /* for now im using LTR, but we have to use user
+                                            * layout direction */
+            point.x,
+            point.y,
+            0,
+            hwnd,
+            std::ptr::null_mut(),
+        );
+
+        if result == 0 {
+            // User canceled the menu, no need to continue.
+            return;
+        }
+
+        // Send the command that the user select to the corresponding window.
+        if PostMessageW(hwnd, WM_SYSCOMMAND, result as _, 0) == 0 {
+            warn!("Can't post the system menu message to the window.");
         }
     }
 }
@@ -1475,6 +1518,10 @@ unsafe fn init(
 
     let mut window_flags = WindowFlags::empty();
     window_flags.set(WindowFlags::MARKER_DECORATIONS, attributes.decorations);
+    window_flags.set(
+        WindowFlags::MARKER_CUSTOM_TITLEBAR,
+        attributes.platform_specific.custom_titlebar,
+    );
     window_flags.set(
         WindowFlags::MARKER_UNDECORATED_SHADOW,
         attributes.platform_specific.decoration_shadow,

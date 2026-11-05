@@ -38,6 +38,7 @@ pub struct PlatformSpecificWindowAttributes {
     pub title_text_color: Option<Color>,
     pub corner_preference: Option<CornerPreference>,
     pub cloaked: bool,
+    pub custom_titlebar: bool,
 }
 
 impl Default for PlatformSpecificWindowAttributes {
@@ -58,6 +59,7 @@ impl Default for PlatformSpecificWindowAttributes {
             title_text_color: None,
             corner_preference: None,
             cloaked: false,
+            custom_titlebar: false,
         }
     }
 }
@@ -205,5 +207,6 @@ mod keyboard;
 mod keyboard_layout;
 mod monitor;
 mod raw_input;
+mod titlebar;
 mod window;
 mod window_state;

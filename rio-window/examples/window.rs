@@ -476,6 +476,7 @@ impl ApplicationHandler<UserEvent> for Application {
             | WindowEvent::HoveredFile(_)
             | WindowEvent::Destroyed
             | WindowEvent::Touch(_)
+            | WindowEvent::TitlebarButtons { .. }
             | WindowEvent::Moved(_) => (),
         }
     }

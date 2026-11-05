@@ -1673,6 +1673,15 @@ impl ApplicationHandler<EventPayload> for Application<'_> {
                 }
             }
 
+            #[cfg(target_os = "windows")]
+            WindowEvent::TitlebarButtons { hovered, pressed } => {
+                let screen = &mut route.window.screen;
+                if screen.renderer.titlebar.set_buttons(hovered, pressed) {
+                    screen.mark_dirty();
+                    route.request_redraw();
+                }
+            }
+
             WindowEvent::CursorLeft { .. } => {
                 if route.window.screen.clear_close_button_hover() {
                     route.request_redraw();
@@ -2262,6 +2271,12 @@ impl ApplicationHandler<EventPayload> for Application<'_> {
                         route.window.screen.render_welcome();
                     }
                     RoutePath::Terminal => {
+                        #[cfg(target_os = "windows")]
+                        route
+                            .window
+                            .screen
+                            .sync_titlebar(&route.window.winit_window);
+
                         if let Some(window_update) = route.window.screen.render() {
                             use crate::context::renderable::{
                                 BackgroundState, WindowUpdate,

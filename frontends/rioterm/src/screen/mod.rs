@@ -101,6 +101,9 @@ pub struct Screen<'screen> {
     #[cfg(target_os = "macos")]
     pub allow_manual_dragging: bool,
     last_chrome_press: Option<ChromePress>,
+    /// The title bar layout the window was last told about.
+    #[cfg(target_os = "windows")]
+    titlebar_layout: Option<rio_window::platform::windows::TitlebarLayout>,
     last_close_press: Option<(std::time::Instant, f32)>,
     pub grids: rustc_hash::FxHashMap<usize, rio_backend::sugarloaf::grid::GridRenderer>,
     pub grid_rasterizer: rio_grid::GridGlyphRasterizer,
@@ -351,6 +354,8 @@ impl Screen<'_> {
             #[cfg(target_os = "macos")]
             allow_manual_dragging: config.navigation.is_enabled(),
             last_chrome_press: None,
+            #[cfg(target_os = "windows")]
+            titlebar_layout: None,
             last_close_press: None,
             grids: rustc_hash::FxHashMap::default(),
             grid_rasterizer: rio_grid::GridGlyphRasterizer::new(),
@@ -556,6 +561,7 @@ impl Screen<'_> {
         if let Some(mut island) = old_island {
             island.update_colors(config.colors.tabs, config.colors.tabs_active);
             island.max_tab_width = config.navigation.max_tab_width;
+            island.hide_if_single = config.navigation.hides_lone_tab();
             self.renderer.island = Some(island);
         }
 
@@ -2825,12 +2831,65 @@ impl Screen<'_> {
             .as_ref()
             .map(|island| island.max_tab_width)
             .unwrap_or_else(rio_backend::config::navigation::default_max_tab_width);
+        let insets = self
+            .renderer
+            .island
+            .as_ref()
+            .map(|island| island.insets)
+            .unwrap_or_default();
         island::tab_strip_layout(
             self.sugarloaf.window_size().width,
             self.sugarloaf.scale_factor(),
             num_tabs,
             max_tab_width,
+            insets,
         )
+    }
+
+    /// Bring the title bar in line with the window before a frame: it comes
+    /// and goes with fullscreen, and the part of it that belongs to the tabs
+    /// moves with every tab opened or closed.
+    #[cfg(target_os = "windows")]
+    pub fn sync_titlebar(&mut self, window: &rio_window::window::Window) {
+        use crate::renderer::titlebar;
+        use rio_window::platform::windows::WindowExtWindows;
+
+        let active = window.has_custom_titlebar();
+        self.renderer.titlebar.active = active;
+        self.renderer.titlebar.maximized = window.is_maximized();
+
+        let Some(island) = self.renderer.island.as_mut() else {
+            return;
+        };
+        island.insets = if active {
+            titlebar::strip_insets()
+        } else {
+            island::StripInsets::default()
+        };
+        if !active {
+            return;
+        }
+
+        let picker_open = island.is_color_picker_open();
+        let num_tabs = self.context_manager.len();
+        let scale = self.sugarloaf.scale_factor();
+        let strip = self.island_tab_layout(num_tabs);
+        let tabs = if picker_open {
+            // A click anywhere has to reach the picker, to dismiss it.
+            let width = self.sugarloaf.window_size().width / scale;
+            Some((0.0, width))
+        } else if num_tabs > 1 {
+            Some((strip.left_margin, strip.left_margin + strip.tabs_width))
+        } else {
+            // A lone tab is just the window's title.
+            None
+        };
+
+        let layout = titlebar::hit_layout(scale, tabs);
+        if self.titlebar_layout.as_ref() != Some(&layout) {
+            window.set_titlebar_layout(layout.clone());
+            self.titlebar_layout = Some(layout);
+        }
     }
 
     #[cfg(target_os = "macos")]

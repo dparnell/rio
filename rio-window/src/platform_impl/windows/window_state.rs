@@ -1,6 +1,7 @@
 use crate::dpi::{PhysicalPosition, PhysicalSize, Size};
 use crate::icon::Icon;
 use crate::keyboard::ModifiersState;
+use crate::platform_impl::platform::titlebar::TitlebarState;
 use crate::platform_impl::platform::{event_loop, util, Fullscreen, SelectedCursor};
 use crate::window::{Theme, WindowAttributes};
 use bitflags::bitflags;
@@ -58,6 +59,8 @@ pub(crate) struct WindowState {
     pub dragging: bool,
 
     pub skip_taskbar: bool,
+
+    pub titlebar: TitlebarState,
 }
 
 #[derive(Clone)]
@@ -125,6 +128,9 @@ bitflags! {
 
         const CLIP_CHILDREN = 1 << 22;
 
+        /// The application draws the title bar inside the client area.
+        const MARKER_CUSTOM_TITLEBAR = 1 << 23;
+
         const EXCLUSIVE_FULLSCREEN_OR_MASK = WindowFlags::ALWAYS_ON_TOP.bits();
     }
 }
@@ -178,6 +184,8 @@ impl WindowState {
             dragging: false,
 
             skip_taskbar: false,
+
+            titlebar: TitlebarState::default(),
         }
     }
 
@@ -447,10 +455,23 @@ impl WindowFlags {
         }
     }
 
+    /// Whether the client area takes over the caption right now. A window
+    /// without decorations has no caption to replace, and a fullscreen one has
+    /// dropped the frame the title bar would be cut out of.
+    pub fn has_custom_titlebar(self) -> bool {
+        self.contains(
+            WindowFlags::MARKER_CUSTOM_TITLEBAR | WindowFlags::MARKER_DECORATIONS,
+        ) && !self.intersects(
+            WindowFlags::MARKER_EXCLUSIVE_FULLSCREEN
+                | WindowFlags::MARKER_BORDERLESS_FULLSCREEN,
+        )
+    }
+
     pub fn adjust_rect(self, hwnd: HWND, mut rect: RECT) -> Result<RECT, io::Error> {
         unsafe {
             let mut style = GetWindowLongW(hwnd, GWL_STYLE) as u32;
             let style_ex = GetWindowLongW(hwnd, GWL_EXSTYLE) as u32;
+            let client_top = rect.top;
 
             // Frameless style implemented by manually overriding the non-client area in
             // `WM_NCCALCSIZE`.
@@ -476,6 +497,12 @@ impl WindowFlags {
                     AdjustWindowRectEx(&mut rect, style, b_menu.into(), style_ex)
                 }
             })?;
+
+            // No frame above the client area: it starts at the window's top.
+            if self.has_custom_titlebar() {
+                rect.top = client_top;
+            }
+
             Ok(rect)
         }
     }

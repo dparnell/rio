@@ -223,6 +223,7 @@ pub type SetProcessDpiAwareness =
 pub type SetProcessDpiAwarenessContext =
     unsafe extern "system" fn(value: DPI_AWARENESS_CONTEXT) -> BOOL;
 pub type GetDpiForWindow = unsafe extern "system" fn(hwnd: HWND) -> u32;
+pub type GetSystemMetricsForDpi = unsafe extern "system" fn(index: i32, dpi: u32) -> i32;
 pub type GetDpiForMonitor = unsafe extern "system" fn(
     hmonitor: HMONITOR,
     dpi_type: MONITOR_DPI_TYPE,
@@ -258,6 +259,8 @@ pub type GetPointerTouchInfo =
 pub type GetPointerPenInfo =
     unsafe extern "system" fn(pointId: u32, penInfo: *mut POINTER_PEN_INFO) -> BOOL;
 
+pub(crate) static GET_SYSTEM_METRICS_FOR_DPI: Lazy<Option<GetSystemMetricsForDpi>> =
+    Lazy::new(|| get_function!("user32.dll", GetSystemMetricsForDpi));
 pub(crate) static GET_DPI_FOR_WINDOW: Lazy<Option<GetDpiForWindow>> =
     Lazy::new(|| get_function!("user32.dll", GetDpiForWindow));
 pub(crate) static ADJUST_WINDOW_RECT_EX_FOR_DPI: Lazy<Option<AdjustWindowRectExForDpi>> =
