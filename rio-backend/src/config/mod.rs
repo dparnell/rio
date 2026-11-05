@@ -365,6 +365,25 @@ pub fn create_config_file(path: Option<PathBuf>) {
 }
 
 impl Config {
+    /// Whether the tab strip takes the place of the native title bar.
+    #[inline]
+    pub fn titlebar_tabs(&self) -> bool {
+        cfg!(target_os = "windows")
+            && self.window.windows_use_unified_titlebar
+            && self.navigation.is_enabled()
+    }
+
+    /// The navigation settings as a window should apply them: a title bar
+    /// can't go away, so a tab strip standing in for one ignores
+    /// `hide-if-single`.
+    pub fn effective_navigation(&self) -> navigation::Navigation {
+        let mut navigation = self.navigation.clone();
+        if self.titlebar_tabs() {
+            navigation.hide_if_single = false;
+        }
+        navigation
+    }
+
     #[cfg(test)]
     fn load_from_path(path: &PathBuf) -> Self {
         if path.exists() {
@@ -619,6 +638,9 @@ impl Config {
             if let Some(macos_unified) = window_overwrite.macos_use_unified_titlebar {
                 self.window.macos_use_unified_titlebar = macos_unified;
             }
+            if let Some(win_unified) = window_overwrite.windows_use_unified_titlebar {
+                self.window.windows_use_unified_titlebar = win_unified;
+            }
             if let Some(macos_shadow) = window_overwrite.macos_use_shadow {
                 self.window.macos_use_shadow = macos_shadow;
             }
@@ -783,6 +805,44 @@ impl Default for CursorConfig {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn unified_titlebar_lives_under_window_and_keeps_the_strip() {
+        let config: super::Config = toml::from_str(
+            "[window]\n\
+             windows-use-unified-titlebar = true\n\
+             [navigation]\n\
+             mode = \"Tab\"\n\
+             hide-if-single = true\n",
+        )
+        .unwrap();
+        assert!(config.window.windows_use_unified_titlebar);
+        assert_eq!(config.titlebar_tabs(), cfg!(target_os = "windows"));
+        assert_eq!(
+            config.effective_navigation().hide_if_single,
+            !cfg!(target_os = "windows")
+        );
+        // What the user wrote stays as it was.
+        assert!(config.navigation.hide_if_single);
+    }
+
+    #[test]
+    fn unified_titlebar_needs_tabs_and_is_off_by_default() {
+        let config = super::Config::default();
+        assert!(!config.window.windows_use_unified_titlebar);
+        assert!(!config.titlebar_tabs());
+
+        let plain: super::Config = toml::from_str(
+            "[window]\n\
+             windows-use-unified-titlebar = true\n\
+             [navigation]\n\
+             mode = \"Plain\"\n\
+             hide-if-single = true\n",
+        )
+        .unwrap();
+        assert!(!plain.titlebar_tabs());
+        assert!(plain.effective_navigation().hide_if_single);
+    }
+
     use super::*;
     use colors::{hex_to_color_arr, hex_to_color_wgpu};
     use std::io::Write;

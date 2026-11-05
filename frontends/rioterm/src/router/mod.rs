@@ -120,7 +120,7 @@ impl Route<'_> {
             use rio_window::platform::windows::WindowExtWindows;
             self.window
                 .winit_window
-                .set_custom_titlebar(config.navigation.titlebar_tabs());
+                .set_custom_titlebar(config.titlebar_tabs());
         }
 
         self.window

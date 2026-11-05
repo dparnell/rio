@@ -234,7 +234,7 @@ impl Renderer {
             Some(island::Island::new(
                 named_colors.tabs,
                 named_colors.tabs_active,
-                config.navigation.hides_lone_tab(),
+                config.effective_navigation().hide_if_single,
                 config.navigation.max_tab_width,
             ))
         } else {
@@ -255,7 +255,7 @@ impl Renderer {
             is_window_focused: true,
             ignore_selection_fg_color: config.ignore_selection_fg_color,
             colors,
-            navigation: config.navigation.clone(),
+            navigation: config.effective_navigation(),
             margin: config.margin,
             island,
             #[cfg(target_os = "windows")]

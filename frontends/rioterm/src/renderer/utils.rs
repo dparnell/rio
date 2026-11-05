@@ -16,7 +16,7 @@ pub fn padding_top_from_config(
         // On Linux/Windows, if hide_if_single is true and there's only one tab,
         // the island is hidden so render from 0 + configured margin
         #[cfg(not(target_os = "macos"))]
-        if navigation.hides_lone_tab() && num_tabs <= 1 {
+        if navigation.hide_if_single && num_tabs <= 1 {
             return constants::PADDING_Y + padding_y_top;
         }
 
