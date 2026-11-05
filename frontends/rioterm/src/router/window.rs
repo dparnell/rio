@@ -148,6 +148,11 @@ pub fn create_window_builder(
         // On windows cloak (hide) the window initially, we later reveal it after the first draw.
         // This is a workaround to hide the "white flash" that occurs during application startup.
         window_builder = window_builder.with_cloaked(true);
+
+        // Inert on a window without decorations, so the quake window and
+        // `decorations = "Disabled"` need no exception here.
+        window_builder =
+            window_builder.with_custom_titlebar(config.navigation.titlebar_tabs());
     }
 
     // The quake window ignores `window.mode`: a fullscreen or

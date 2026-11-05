@@ -12,6 +12,24 @@ use crate::event_loop::EventLoopBuilder;
 use crate::monitor::MonitorHandle;
 use crate::window::{BadIcon, Icon, Window, WindowAttributes};
 
+/// The parts of an application-drawn title bar, in physical pixels from the
+/// top left of the client area.
+///
+/// Whatever isn't claimed here drags the window. See
+/// [`WindowExtWindows::set_titlebar_layout`].
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct TitlebarLayout {
+    /// Height of the title bar.
+    pub height: u32,
+    /// Width of the window icon at the left end, which opens the system menu.
+    pub icon_width: u32,
+    /// Width of each of the three caption buttons at the right end.
+    pub button_width: u32,
+    /// Horizontal `(left, right)` spans the application handles itself, such
+    /// as tabs. Pointer events there are delivered like any others.
+    pub client_regions: Vec<(i32, i32)>,
+}
+
 /// Window Handle type used by Win32 API
 pub type HWND = *mut c_void;
 /// Menu Handle type used by Win32 API
@@ -285,6 +303,29 @@ pub trait WindowExtWindows {
     /// Enabling the shadow causes a thin 1px line to appear on the top of the window.
     fn set_undecorated_shadow(&self, shadow: bool);
 
+    /// Moves the title bar into the client area for the application to draw.
+    ///
+    /// The window keeps its frame and everything the system does with it, but
+    /// the caption is gone: the client area reaches the top of the window, and
+    /// the application paints the title bar there and describes it with
+    /// [`set_titlebar_layout`]. Pointer activity over the caption buttons
+    /// arrives as [`WindowEvent::TitlebarButtons`].
+    ///
+    /// Has no effect on a window without decorations, or while it's fullscreen.
+    ///
+    /// [`set_titlebar_layout`]: Self::set_titlebar_layout
+    /// [`WindowEvent::TitlebarButtons`]: crate::event::WindowEvent::TitlebarButtons
+    fn set_custom_titlebar(&self, custom: bool);
+
+    /// Whether the application is responsible for the title bar right now.
+    ///
+    /// Turns false while the window is fullscreen, so this is what to check
+    /// before drawing one.
+    fn has_custom_titlebar(&self) -> bool;
+
+    /// Describes the title bar the application draws, for hit testing.
+    fn set_titlebar_layout(&self, layout: TitlebarLayout);
+
     /// Sets system-drawn backdrop type.
     ///
     /// Requires Windows 11 build 22523+.
@@ -400,6 +441,21 @@ impl WindowExtWindows for Window {
     #[inline]
     fn set_undecorated_shadow(&self, shadow: bool) {
         self.window.set_undecorated_shadow(shadow)
+    }
+
+    #[inline]
+    fn set_custom_titlebar(&self, custom: bool) {
+        self.window.set_custom_titlebar(custom)
+    }
+
+    #[inline]
+    fn has_custom_titlebar(&self) -> bool {
+        self.window.has_custom_titlebar()
+    }
+
+    #[inline]
+    fn set_titlebar_layout(&self, layout: TitlebarLayout) {
+        self.window.set_titlebar_layout(layout)
     }
 
     #[inline]
@@ -537,6 +593,11 @@ pub trait WindowAttributesExtWindows {
     /// Enabling the shadow causes a thin 1px line to appear on the top of the window.
     fn with_undecorated_shadow(self, shadow: bool) -> Self;
 
+    /// Starts the window with an application-drawn title bar.
+    ///
+    /// See [`WindowExtWindows::set_custom_titlebar`].
+    fn with_custom_titlebar(self, custom: bool) -> Self;
+
     /// Sets system-drawn backdrop type.
     ///
     /// Requires Windows 11 build 22523+.
@@ -617,6 +678,12 @@ impl WindowAttributesExtWindows for WindowAttributes {
     #[inline]
     fn with_undecorated_shadow(mut self, shadow: bool) -> Self {
         self.platform_specific.decoration_shadow = shadow;
+        self
+    }
+
+    #[inline]
+    fn with_custom_titlebar(mut self, custom: bool) -> Self {
+        self.platform_specific.custom_titlebar = custom;
         self
     }
 

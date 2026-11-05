@@ -23,9 +23,9 @@ use windows_sys::Win32::Foundation::{
     GetLastError, FALSE, HANDLE, HWND, LPARAM, LRESULT, POINT, RECT, WAIT_FAILED, WPARAM,
 };
 use windows_sys::Win32::Graphics::Gdi::{
-    GetMonitorInfoW, MonitorFromPoint, MonitorFromRect, MonitorFromWindow, RedrawWindow,
-    ScreenToClient, ValidateRect, MONITORINFO, MONITOR_DEFAULTTONULL, RDW_INTERNALPAINT,
-    SC_SCREENSAVE,
+    ClientToScreen, GetMonitorInfoW, MonitorFromPoint, MonitorFromRect,
+    MonitorFromWindow, RedrawWindow, ScreenToClient, ValidateRect, MONITORINFO,
+    MONITOR_DEFAULTTONULL, RDW_INTERNALPAINT, SC_SCREENSAVE,
 };
 use windows_sys::Win32::System::Ole::RevokeDragDrop;
 use windows_sys::Win32::System::Threading::{
@@ -37,7 +37,8 @@ use windows_sys::Win32::UI::Input::Ime::{
     GCS_COMPSTR, GCS_RESULTSTR, ISC_SHOWUICOMPOSITIONWINDOW,
 };
 use windows_sys::Win32::UI::Input::KeyboardAndMouse::{
-    ReleaseCapture, SetCapture, TrackMouseEvent, TME_LEAVE, TRACKMOUSEEVENT,
+    GetDoubleClickTime, ReleaseCapture, SetCapture, TrackMouseEvent, TME_LEAVE,
+    TME_NONCLIENT, TRACKMOUSEEVENT,
 };
 use windows_sys::Win32::UI::Input::Pointer::{
     POINTER_FLAG_DOWN, POINTER_FLAG_UP, POINTER_FLAG_UPDATE,
@@ -54,23 +55,25 @@ use windows_sys::Win32::UI::WindowsAndMessaging::{
     GetCursorPos, GetMenu, LoadCursorW, MessageBoxW, MsgWaitForMultipleObjectsEx,
     PeekMessageW, PostMessageW, RegisterClassExW, RegisterWindowMessageA, SetCursor,
     SetWindowPos, TranslateMessage, CREATESTRUCTW, GIDC_ARRIVAL, GIDC_REMOVAL, GWL_STYLE,
-    GWL_USERDATA, HTCAPTION, HTCLIENT, IDYES, MB_ICONQUESTION, MB_TASKMODAL, MB_YESNO,
-    MINMAXINFO, MNC_CLOSE, MSG, MWMO_INPUTAVAILABLE, NCCALCSIZE_PARAMS, PM_REMOVE,
-    PT_PEN, PT_TOUCH, QS_ALLINPUT, RI_MOUSE_HWHEEL, RI_MOUSE_WHEEL, SC_MINIMIZE,
-    SC_RESTORE, SIZE_MAXIMIZED, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SWP_NOZORDER,
-    WHEEL_DELTA, WINDOWPOS, WMSZ_BOTTOM, WMSZ_BOTTOMLEFT, WMSZ_BOTTOMRIGHT, WMSZ_LEFT,
-    WMSZ_RIGHT, WMSZ_TOP, WMSZ_TOPLEFT, WMSZ_TOPRIGHT, WM_CAPTURECHANGED, WM_CLOSE,
-    WM_CREATE, WM_DESTROY, WM_DPICHANGED, WM_ENTERSIZEMOVE, WM_EXITSIZEMOVE,
+    GWL_USERDATA, HTCAPTION, HTCLIENT, HTSYSMENU, IDYES, MB_ICONQUESTION, MB_TASKMODAL,
+    MB_YESNO, MINMAXINFO, MNC_CLOSE, MSG, MWMO_INPUTAVAILABLE, NCCALCSIZE_PARAMS,
+    PM_REMOVE, PT_PEN, PT_TOUCH, QS_ALLINPUT, RI_MOUSE_HWHEEL, RI_MOUSE_WHEEL, SC_CLOSE,
+    SC_MINIMIZE, SC_RESTORE, SIZE_MAXIMIZED, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE,
+    SWP_NOZORDER, WHEEL_DELTA, WINDOWPOS, WMSZ_BOTTOM, WMSZ_BOTTOMLEFT, WMSZ_BOTTOMRIGHT,
+    WMSZ_LEFT, WMSZ_RIGHT, WMSZ_TOP, WMSZ_TOPLEFT, WMSZ_TOPRIGHT, WM_CAPTURECHANGED,
+    WM_CLOSE, WM_CREATE, WM_DESTROY, WM_DPICHANGED, WM_ENTERSIZEMOVE, WM_EXITSIZEMOVE,
     WM_GETMINMAXINFO, WM_IME_COMPOSITION, WM_IME_ENDCOMPOSITION, WM_IME_SETCONTEXT,
     WM_IME_STARTCOMPOSITION, WM_INPUT, WM_INPUT_DEVICE_CHANGE, WM_KEYDOWN, WM_KEYUP,
     WM_KILLFOCUS, WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MBUTTONDOWN, WM_MBUTTONUP,
     WM_MENUCHAR, WM_MOUSEHWHEEL, WM_MOUSEMOVE, WM_MOUSEWHEEL, WM_NCACTIVATE,
-    WM_NCCALCSIZE, WM_NCCREATE, WM_NCDESTROY, WM_NCLBUTTONDOWN, WM_PAINT, WM_POINTERDOWN,
-    WM_POINTERUP, WM_POINTERUPDATE, WM_RBUTTONDOWN, WM_RBUTTONUP, WM_SETCURSOR,
-    WM_SETFOCUS, WM_SETTINGCHANGE, WM_SIZE, WM_SIZING, WM_SYSCOMMAND, WM_SYSKEYDOWN,
-    WM_SYSKEYUP, WM_TOUCH, WM_WINDOWPOSCHANGED, WM_WINDOWPOSCHANGING, WM_XBUTTONDOWN,
-    WM_XBUTTONUP, WNDCLASSEXW, WS_EX_LAYERED, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW,
-    WS_EX_TRANSPARENT, WS_OVERLAPPED, WS_POPUP, WS_VISIBLE,
+    WM_NCCALCSIZE, WM_NCCREATE, WM_NCDESTROY, WM_NCHITTEST, WM_NCLBUTTONDBLCLK,
+    WM_NCLBUTTONDOWN, WM_NCLBUTTONUP, WM_NCMOUSELEAVE, WM_NCMOUSEMOVE, WM_NCRBUTTONUP,
+    WM_PAINT, WM_POINTERDOWN, WM_POINTERUP, WM_POINTERUPDATE, WM_RBUTTONDOWN,
+    WM_RBUTTONUP, WM_SETCURSOR, WM_SETFOCUS, WM_SETTINGCHANGE, WM_SIZE, WM_SIZING,
+    WM_SYSCOMMAND, WM_SYSKEYDOWN, WM_SYSKEYUP, WM_TOUCH, WM_WINDOWPOSCHANGED,
+    WM_WINDOWPOSCHANGING, WM_XBUTTONDOWN, WM_XBUTTONUP, WNDCLASSEXW, WS_EX_LAYERED,
+    WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW, WS_EX_TRANSPARENT, WS_OVERLAPPED, WS_POPUP,
+    WS_VISIBLE,
 };
 
 use crate::dpi::{PhysicalPosition, PhysicalSize};
@@ -92,7 +95,8 @@ use crate::platform_impl::platform::ime::ImeContext;
 use crate::platform_impl::platform::keyboard::KeyEventBuilder;
 use crate::platform_impl::platform::keyboard_layout::LAYOUT_CACHE;
 use crate::platform_impl::platform::monitor::{self, MonitorHandle};
-use crate::platform_impl::platform::window::InitData;
+use crate::platform_impl::platform::titlebar;
+use crate::platform_impl::platform::window::{show_system_menu, InitData};
 use crate::platform_impl::platform::window_state::{
     CursorFlags, ImeState, WindowFlags, WindowState,
 };
@@ -155,6 +159,18 @@ struct ThreadMsgTargetData {
 impl ThreadMsgTargetData {
     fn send_event(&self, event: Event<UserEventPlaceholder>) {
         self.event_loop_runner.send_event(event);
+    }
+}
+
+/// Tell the application what the pointer is doing to the caption buttons of a
+/// custom title bar, if that changed.
+fn report_titlebar_buttons(window: HWND, userdata: &WindowData) {
+    let report = userdata.window_state_lock().titlebar.take_report();
+    if let Some((hovered, pressed)) = report {
+        userdata.send_event(Event::WindowEvent {
+            window_id: RootWindowId(WindowId(window)),
+            event: WindowEvent::TitlebarButtons { hovered, pressed },
+        });
     }
 }
 
@@ -1280,6 +1296,39 @@ unsafe fn public_window_callback_inner(
     let callback = || match msg {
         WM_NCCALCSIZE => {
             let window_flags = userdata.window_state_lock().window_flags;
+
+            if wparam != 0 && window_flags.has_custom_titlebar() {
+                let params = unsafe { &mut *(lparam as *mut NCCALCSIZE_PARAMS) };
+
+                // Let the system lay the frame out, then hand the caption back
+                // to the client area. The left, right and bottom edges stay
+                // real frame, so they resize and the shadow stays around them.
+                let window_top = params.rgrc[0].top;
+                let frame_result =
+                    unsafe { DefWindowProcW(window, WM_NCCALCSIZE, wparam, lparam) };
+                if frame_result != 0 {
+                    result = ProcResult::Value(frame_result);
+                    return;
+                }
+                params.rgrc[0].top = window_top;
+
+                if util::is_maximized(window) {
+                    // Maximized windows hang off the screen by their frame.
+                    params.rgrc[0].top += titlebar::frame_height(window);
+
+                    let monitor = unsafe {
+                        MonitorFromRect(&params.rgrc[0], MONITOR_DEFAULTTONULL)
+                    };
+                    titlebar::leave_room_for_autohide_taskbars(
+                        monitor,
+                        &mut params.rgrc[0],
+                    );
+                }
+
+                result = ProcResult::Value(0);
+                return;
+            }
+
             if wparam == 0 || window_flags.contains(WindowFlags::MARKER_DECORATIONS) {
                 result = ProcResult::DefWindowProc(wparam);
                 return;
@@ -1338,11 +1387,189 @@ unsafe fn public_window_callback_inner(
             result = ProcResult::Value(0);
         }
 
+        WM_NCHITTEST => {
+            let (custom, resizable) = {
+                let flags = userdata.window_state_lock().window_flags;
+                (
+                    flags.has_custom_titlebar(),
+                    flags.contains(WindowFlags::RESIZABLE),
+                )
+            };
+            if !custom {
+                result = ProcResult::DefWindowProc(wparam);
+                return;
+            }
+
+            // The real frame edges answer for themselves.
+            let frame_hit = unsafe { DefWindowProcW(window, msg, wparam, lparam) };
+            if frame_hit != HTCLIENT as isize {
+                result = ProcResult::Value(frame_hit);
+                return;
+            }
+
+            let mut point = POINT {
+                x: super::get_x_lparam(lparam as u32) as i32,
+                y: super::get_y_lparam(lparam as u32) as i32,
+            };
+            let mut client = unsafe { mem::zeroed() };
+            unsafe {
+                ScreenToClient(window, &mut point);
+                GetClientRect(window, &mut client);
+            }
+
+            let resize_border = if resizable && !util::is_maximized(window) {
+                titlebar::frame_height(window)
+            } else {
+                0
+            };
+            let hit = titlebar::hit_test(
+                &userdata.window_state_lock().titlebar.layout,
+                point.x,
+                point.y,
+                client.right,
+                resize_border,
+            );
+            result = ProcResult::Value(hit as isize);
+        }
+
+        WM_NCMOUSEMOVE => {
+            if userdata
+                .window_state_lock()
+                .window_flags
+                .has_custom_titlebar()
+            {
+                userdata.window_state_lock().titlebar.hovered =
+                    titlebar::button_from_hit(wparam);
+                report_titlebar_buttons(window, userdata);
+
+                // Calling TrackMouseEvent in order to receive WM_NCMOUSELEAVE.
+                unsafe {
+                    TrackMouseEvent(&mut TRACKMOUSEEVENT {
+                        cbSize: mem::size_of::<TRACKMOUSEEVENT>() as u32,
+                        dwFlags: TME_LEAVE | TME_NONCLIENT,
+                        hwndTrack: window,
+                        dwHoverTime: HOVER_DEFAULT,
+                    })
+                };
+            }
+            result = ProcResult::DefWindowProc(wparam);
+        }
+
+        WM_NCMOUSELEAVE => {
+            {
+                let mut state = userdata.window_state_lock();
+                state.titlebar.hovered = None;
+                state.titlebar.pressed = None;
+            }
+            report_titlebar_buttons(window, userdata);
+            result = ProcResult::DefWindowProc(wparam);
+        }
+
+        WM_NCLBUTTONDOWN | WM_NCLBUTTONDBLCLK
+            if userdata
+                .window_state_lock()
+                .window_flags
+                .has_custom_titlebar()
+                && (titlebar::button_from_hit(wparam).is_some()
+                    || wparam == HTSYSMENU as usize) =>
+        {
+            // None of this may reach DefWindowProc: its caption button
+            // handling draws the classic buttons over the title bar, and
+            // would run a tracking loop of its own.
+            result = ProcResult::Value(0);
+
+            if let Some(button) = titlebar::button_from_hit(wparam) {
+                userdata.window_state_lock().titlebar.pressed = Some(button);
+                report_titlebar_buttons(window, userdata);
+                return;
+            }
+
+            // A second click on the icon closes the window, like the icon of a
+            // native caption. The menu the first click opened takes the
+            // double-click message for itself, so go by the clock.
+            let double_click = {
+                let mut state = userdata.window_state_lock();
+                let opened = state.titlebar.system_menu_opened.take();
+                opened.is_some_and(|at| {
+                    let limit =
+                        Duration::from_millis(unsafe { GetDoubleClickTime() } as u64);
+                    at.elapsed() <= limit
+                })
+            };
+            if double_click {
+                unsafe { PostMessageW(window, WM_SYSCOMMAND, SC_CLOSE as usize, 0) };
+                return;
+            }
+
+            let (height, resizable) = {
+                let state = userdata.window_state_lock();
+                (
+                    state.titlebar.layout.height as i32,
+                    state.window_flags.contains(WindowFlags::RESIZABLE),
+                )
+            };
+            let mut point = POINT { x: 0, y: height };
+            unsafe {
+                ClientToScreen(window, &mut point);
+                show_system_menu(window, point, util::is_maximized(window), resizable);
+            }
+            userdata.window_state_lock().titlebar.system_menu_opened =
+                Some(Instant::now());
+        }
+
         WM_NCLBUTTONDOWN => {
             if wparam == HTCAPTION as _ {
                 unsafe { PostMessageW(window, WM_MOUSEMOVE, 0, lparam) };
             }
             result = ProcResult::DefWindowProc(wparam);
+        }
+
+        WM_NCLBUTTONUP => {
+            let clicked = {
+                let mut state = userdata.window_state_lock();
+                let pressed = state.titlebar.pressed.take();
+                let clicked = titlebar::button_from_hit(wparam).filter(|&button| {
+                    pressed == Some(button) && state.window_flags.has_custom_titlebar()
+                });
+                // The window may be about to go away from under the pointer,
+                // and nothing would then tell us it left the button.
+                if clicked.is_some() {
+                    state.titlebar.hovered = None;
+                }
+                clicked
+            };
+            report_titlebar_buttons(window, userdata);
+
+            match clicked {
+                Some(button) => {
+                    let command =
+                        titlebar::system_command(button, util::is_maximized(window));
+                    unsafe { PostMessageW(window, WM_SYSCOMMAND, command, 0) };
+                    result = ProcResult::Value(0);
+                }
+                None => result = ProcResult::DefWindowProc(wparam),
+            }
+        }
+
+        WM_NCRBUTTONUP
+            if (wparam == HTCAPTION as usize || wparam == HTSYSMENU as usize)
+                && userdata
+                    .window_state_lock()
+                    .window_flags
+                    .has_custom_titlebar() =>
+        {
+            let point = POINT {
+                x: super::get_x_lparam(lparam as u32) as i32,
+                y: super::get_y_lparam(lparam as u32) as i32,
+            };
+            let resizable = userdata
+                .window_state_lock()
+                .window_flags
+                .contains(WindowFlags::RESIZABLE);
+            unsafe {
+                show_system_menu(window, point, util::is_maximized(window), resizable);
+            }
+            result = ProcResult::Value(0);
         }
 
         WM_CLOSE => {

@@ -14,6 +14,8 @@ pub mod helpers;
 pub mod island;
 pub mod scrollbar;
 pub mod search;
+#[cfg(target_os = "windows")]
+pub mod titlebar;
 pub mod trail_cursor;
 pub mod utils;
 
@@ -160,6 +162,8 @@ pub struct Renderer {
     pub navigation: Navigation,
     pub margin: rio_backend::config::layout::Margin,
     pub island: Option<island::Island>,
+    #[cfg(target_os = "windows")]
+    pub titlebar: titlebar::Titlebar,
     pub command_palette: command_palette::CommandPalette,
     unfocused_split_opacity: f32,
     unfocused_split_fill: Option<ColorArray>,
@@ -230,7 +234,7 @@ impl Renderer {
             Some(island::Island::new(
                 named_colors.tabs,
                 named_colors.tabs_active,
-                config.navigation.hide_if_single,
+                config.navigation.hides_lone_tab(),
                 config.navigation.max_tab_width,
             ))
         } else {
@@ -254,6 +258,8 @@ impl Renderer {
             navigation: config.navigation.clone(),
             margin: config.margin,
             island,
+            #[cfg(target_os = "windows")]
+            titlebar: titlebar::Titlebar::default(),
             command_palette: {
                 let mut palette = command_palette::CommandPalette::new();
                 palette.has_adaptive_theme = config.adaptive_colors.is_some();
@@ -764,6 +770,15 @@ impl Renderer {
                 (window_size.width, window_size.height, scale_factor),
                 context_manager,
                 island_bg,
+            );
+
+            #[cfg(target_os = "windows")]
+            self.titlebar.render(
+                sugarloaf,
+                window_size.width,
+                scale_factor,
+                island_bg,
+                self.is_window_focused,
             );
         }
 

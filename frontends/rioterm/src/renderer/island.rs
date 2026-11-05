@@ -81,6 +81,25 @@ const PICKER_COLORS: [[f32; 4]; 6] = [
 #[cfg(target_os = "macos")]
 const ISLAND_MARGIN_LEFT_MACOS: f32 = 76.0;
 
+/// What the tabs keep clear of at each end of the strip, in logical px.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct StripInsets {
+    pub left: f32,
+    pub right: f32,
+}
+
+impl Default for StripInsets {
+    fn default() -> Self {
+        Self {
+            #[cfg(target_os = "macos")]
+            left: ISLAND_MARGIN_LEFT_MACOS,
+            #[cfg(not(target_os = "macos"))]
+            left: 0.0,
+            right: ISLAND_MARGIN_RIGHT,
+        }
+    }
+}
+
 const CLOSE_MARGIN_RIGHT: f32 = 14.0;
 const CLOSE_GLYPH_HALF: f32 = 3.5;
 const CLOSE_MIN_ISLAND_WIDTH: f32 = 64.0;
@@ -158,14 +177,12 @@ pub fn tab_strip_layout(
     scale_factor: f32,
     num_tabs: usize,
     max_tab_width: f32,
+    insets: StripInsets,
 ) -> TabStripLayout {
-    #[cfg(target_os = "macos")]
-    let left_margin = ISLAND_MARGIN_LEFT_MACOS;
-    #[cfg(not(target_os = "macos"))]
-    let left_margin = 0.0;
+    let left_margin = insets.left;
 
     let available_width =
-        (window_width / scale_factor) - ISLAND_MARGIN_RIGHT - left_margin;
+        ((window_width / scale_factor) - insets.right - left_margin).max(0.0);
     let tab_width =
         (available_width / num_tabs.max(1) as f32).clamp(0.0, max_tab_width.max(0.0));
     TabStripLayout {
@@ -265,25 +282,27 @@ fn island_rect(slot_x: f32, tab_width: f32) -> (f32, f32, f32, f32, f32) {
 /// `window_width` is physical, as `render` receives it, while everything
 /// drawn is logical, the same conversion `tab_strip_layout` makes.
 #[inline]
-fn single_title_budget(window_width: f32, scale_factor: f32, left_margin: f32) -> f32 {
-    ((window_width / scale_factor)
-        - left_margin
-        - ISLAND_MARGIN_RIGHT
-        - TAB_PADDING_X * 2.0)
+fn single_title_budget(window_width: f32, scale_factor: f32, insets: StripInsets) -> f32 {
+    ((window_width / scale_factor) - insets.left - insets.right - TAB_PADDING_X * 2.0)
         .max(0.0)
 }
 
 /// Where a lone tab's title starts: centred on the strip, but never far
-/// enough left to sit under the traffic lights on macOS. Physical in,
-/// logical out, as above.
+/// enough left to sit under the traffic lights on macOS, nor far enough right
+/// to run into the caption buttons on Windows. Physical in, logical out, as
+/// above.
 #[inline]
 fn single_title_x(
     window_width: f32,
     scale_factor: f32,
     text_width: f32,
-    left_margin: f32,
+    insets: StripInsets,
 ) -> f32 {
-    (((window_width / scale_factor) - text_width) / 2.0).max(left_margin + TAB_PADDING_X)
+    let width = window_width / scale_factor;
+    let rightmost = width - insets.right - TAB_PADDING_X - text_width;
+    ((width - text_width) / 2.0)
+        .min(rightmost)
+        .max(insets.left + TAB_PADDING_X)
 }
 
 #[inline]
@@ -370,6 +389,8 @@ pub struct Island {
     pub hide_if_single: bool,
     /// Cap on tab width in logical px (`navigation.max-tab-width`).
     pub max_tab_width: f32,
+    /// What the tabs keep clear of at either end of the strip.
+    pub insets: StripInsets,
     pub inactive_text_color: [f32; 4],
     pub active_text_color: [f32; 4],
     /// Current progress bar state
@@ -428,6 +449,7 @@ impl Island {
         Self {
             hide_if_single,
             max_tab_width,
+            insets: StripInsets::default(),
             inactive_text_color,
             active_text_color,
             progress_state: None,
@@ -878,8 +900,13 @@ impl Island {
         self.slide_springs
             .retain(|_, s| s.update(dt, DRAG_ANIMATION_LENGTH));
 
-        let layout =
-            tab_strip_layout(window_width, scale_factor, num_tabs, self.max_tab_width);
+        let layout = tab_strip_layout(
+            window_width,
+            scale_factor,
+            num_tabs,
+            self.max_tab_width,
+            self.insets,
+        );
         let TabStripLayout {
             left_margin,
             tab_width,
@@ -959,7 +986,7 @@ impl Island {
             let bell_width = if bell { BELL_DOT_SIZE + BELL_GAP } else { 0.0 };
 
             let max_text_width = if single {
-                single_title_budget(window_width, scale_factor, left_margin) - bell_width
+                single_title_budget(window_width, scale_factor, self.insets) - bell_width
             } else {
                 tab_width - TAB_PADDING_X * 2.0 - bell_width
             }
@@ -983,7 +1010,7 @@ impl Island {
                 let text_width =
                     sugarloaf.text_mut().measure(&title, &title_opts) + bell_width;
                 let text_x = if single {
-                    single_title_x(window_width, scale_factor, text_width, left_margin)
+                    single_title_x(window_width, scale_factor, text_width, self.insets)
                 } else {
                     tab_x + (tab_width - text_width) / 2.0
                 };
@@ -1287,7 +1314,13 @@ impl Island {
             left_margin,
             tab_width,
             ..
-        } = tab_strip_layout(window_width, scale_factor, num_tabs, self.max_tab_width);
+        } = tab_strip_layout(
+            window_width,
+            scale_factor,
+            num_tabs,
+            self.max_tab_width,
+            self.insets,
+        );
         let tab_x = left_margin + picker_tab as f32 * tab_width;
 
         // Picker is rendered just below the island
@@ -1586,25 +1619,68 @@ mod tests {
     /// The regression that shipped: `window_width` is physical while draws
     /// are logical, so centring on it put the title off the right edge of a
     /// 2x display and nothing appeared at all.
+    /// The default right margin with a chosen left one.
+    fn insets(left: f32) -> StripInsets {
+        StripInsets {
+            left,
+            right: ISLAND_MARGIN_RIGHT,
+        }
+    }
+
     #[test]
     fn single_title_is_centred_in_logical_pixels() {
         // 1600 physical at 2x is an 800pt strip, so a 100pt title starts at
         // 350, not at 750 (which would be centred on the physical width and
         // sit past the right edge).
-        let x = single_title_x(1600.0, 2.0, 100.0, 0.0);
+        let x = single_title_x(1600.0, 2.0, 100.0, insets(0.0));
         assert_eq!(x, 350.0);
         assert!(x + 100.0 <= 800.0, "title must stay on screen: {x}");
 
         // At 1x the two agree, which is why this only showed up on retina.
-        assert_eq!(single_title_x(800.0, 1.0, 100.0, 0.0), 350.0);
+        assert_eq!(single_title_x(800.0, 1.0, 100.0, insets(0.0)), 350.0);
     }
 
     #[test]
     fn single_title_never_reaches_under_the_traffic_lights() {
         let margin = 76.0;
         // A title wider than the strip would centre at a negative x.
-        let x = single_title_x(1600.0, 2.0, 900.0, margin);
+        let x = single_title_x(1600.0, 2.0, 900.0, insets(margin));
         assert_eq!(x, margin + TAB_PADDING_X);
+    }
+
+    /// Caption buttons make the strip lopsided, so a long title has to give
+    /// up being centred to stay out from under them.
+    #[test]
+    fn single_title_stays_clear_of_the_caption_buttons() {
+        let insets = StripInsets {
+            left: 38.0,
+            right: 170.0,
+        };
+        let budget = single_title_budget(800.0, 1.0, insets);
+        let x = single_title_x(800.0, 1.0, budget, insets);
+        assert_eq!(x + budget, 800.0 - 170.0 - TAB_PADDING_X);
+        assert_eq!(x, 38.0 + TAB_PADDING_X);
+
+        // A short one is still centred on the window.
+        assert_eq!(single_title_x(800.0, 1.0, 100.0, insets), 350.0);
+    }
+
+    #[test]
+    fn tab_strip_stops_short_of_wide_insets() {
+        let insets = StripInsets {
+            left: 38.0,
+            right: 170.0,
+        };
+        let layout = tab_strip_layout(800.0, 1.0, 8, 240.0, insets);
+        assert_eq!(layout.left_margin, 38.0);
+        assert_eq!(layout.tab_width, (800.0 - 38.0 - 170.0) / 8.0);
+        assert_eq!(layout.tabs_width, 800.0 - 38.0 - 170.0);
+
+        // Narrower than the insets add up to: no tabs, and no negative ones.
+        assert_eq!(
+            tab_strip_layout(100.0, 1.0, 2, 240.0, insets).tab_width,
+            0.0
+        );
     }
 
     #[test]
@@ -1612,27 +1688,28 @@ mod tests {
         // 800pt strip, no left margin: full width less the right margin and
         // the padding on each side.
         assert_eq!(
-            single_title_budget(1600.0, 2.0, 0.0),
+            single_title_budget(1600.0, 2.0, insets(0.0)),
             800.0 - ISLAND_MARGIN_RIGHT - TAB_PADDING_X * 2.0
         );
         // The macOS left margin comes off the top of that.
         assert_eq!(
-            single_title_budget(1600.0, 2.0, 76.0),
+            single_title_budget(1600.0, 2.0, insets(76.0)),
             800.0 - 76.0 - ISLAND_MARGIN_RIGHT - TAB_PADDING_X * 2.0
         );
         // A window too narrow to hold any text yields no budget, not a
         // negative one that would underflow the truncation.
-        assert_eq!(single_title_budget(100.0, 2.0, 76.0), 0.0);
+        assert_eq!(single_title_budget(100.0, 2.0, insets(76.0)), 0.0);
     }
 
     /// A lone title gets far more room than a tab slot would give it, which
     /// is the point of dropping the island.
     #[test]
     fn single_title_budget_beats_a_tab_slot() {
-        let slot = tab_strip_layout(1600.0, 2.0, 1, 240.0).tab_width;
+        let slot =
+            tab_strip_layout(1600.0, 2.0, 1, 240.0, StripInsets::default()).tab_width;
         let slot_budget = (slot - TAB_PADDING_X * 2.0).max(0.0);
         assert!(
-            single_title_budget(1600.0, 2.0, 0.0) > slot_budget,
+            single_title_budget(1600.0, 2.0, insets(0.0)) > slot_budget,
             "expected more than a slot's {slot_budget}"
         );
     }
@@ -2036,7 +2113,7 @@ mod tests {
         // 1000 physical px @ 2x scale → 500 logical px window. Slots
         // stay below the cap here, so the math matches the old
         // fill-the-strip layout.
-        let layout = tab_strip_layout(1000.0, 2.0, 4, 240.0);
+        let layout = tab_strip_layout(1000.0, 2.0, 4, 240.0, StripInsets::default());
         #[cfg(target_os = "macos")]
         {
             assert_eq!(layout.left_margin, ISLAND_MARGIN_LEFT_MACOS);
@@ -2050,19 +2127,21 @@ mod tests {
             assert_eq!(layout.tabs_width, 492.0);
         }
         // Zero tabs clamps the divisor.
-        assert!(tab_strip_layout(1000.0, 2.0, 0, 240.0)
-            .tab_width
-            .is_finite());
+        assert!(
+            tab_strip_layout(1000.0, 2.0, 0, 240.0, StripInsets::default())
+                .tab_width
+                .is_finite()
+        );
     }
 
     #[test]
     fn tab_strip_layout_caps_slot_width() {
-        let layout = tab_strip_layout(3000.0, 2.0, 2, 240.0);
+        let layout = tab_strip_layout(3000.0, 2.0, 2, 240.0, StripInsets::default());
         assert_eq!(layout.tab_width, 240.0);
         assert_eq!(layout.tabs_width, 480.0);
 
         // The cap is configurable via navigation.max-tab-width.
-        let layout = tab_strip_layout(3000.0, 2.0, 2, 280.0);
+        let layout = tab_strip_layout(3000.0, 2.0, 2, 280.0, StripInsets::default());
         assert_eq!(layout.tab_width, 280.0);
         assert_eq!(layout.tabs_width, 560.0);
         // The tabs region ends well before the 1500 logical px strip.
@@ -2070,7 +2149,7 @@ mod tests {
 
         // Pathologically narrow window: width clamps at 0 instead of
         // going negative.
-        let layout = tab_strip_layout(10.0, 2.0, 4, 240.0);
+        let layout = tab_strip_layout(10.0, 2.0, 4, 240.0, StripInsets::default());
         assert_eq!(layout.tab_width, 0.0);
         assert_eq!(layout.tabs_width, 0.0);
     }

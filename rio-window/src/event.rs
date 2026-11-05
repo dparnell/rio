@@ -173,9 +173,30 @@ pub enum StartCause {
     MacOSReopen,
 }
 
+/// A caption button in an application-drawn title bar.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TitlebarButton {
+    Minimize,
+    Maximize,
+    Close,
+}
+
 /// Describes an event from a [`Window`].
 #[derive(Debug, Clone, PartialEq)]
 pub enum WindowEvent {
+    /// The pointer moved over, pressed or left a caption button of an
+    /// application-drawn title bar. The system carries out the click itself;
+    /// this is for showing it.
+    ///
+    /// ## Platform-specific
+    ///
+    /// Only sent on Windows, to a window with a custom title bar.
+    TitlebarButtons {
+        hovered: Option<TitlebarButton>,
+        /// Whether the left button is held down on `hovered`.
+        pressed: bool,
+    },
+
     /// The activation token was delivered back and now could be used.
     #[cfg_attr(
         not(any(x11_platform, wayland_platform)),

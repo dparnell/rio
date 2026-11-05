@@ -1,6 +1,8 @@
 pub mod routes;
 mod window;
 use crate::event::EventProxy;
+#[cfg(target_os = "windows")]
+pub(crate) use crate::router::window::LOGO_ICON;
 use crate::router::window::{
     configure_window, create_window_builder, DEFAULT_MINIMUM_WINDOW_HEIGHT,
     DEFAULT_MINIMUM_WINDOW_WIDTH,
@@ -113,6 +115,14 @@ impl Route<'_> {
         db: &rio_backend::sugarloaf::font::FontLibrary,
         should_update_font: bool,
     ) {
+        #[cfg(target_os = "windows")]
+        {
+            use rio_window::platform::windows::WindowExtWindows;
+            self.window
+                .winit_window
+                .set_custom_titlebar(config.navigation.titlebar_tabs());
+        }
+
         self.window
             .screen
             .update_config(config, db, should_update_font);
