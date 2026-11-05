@@ -178,12 +178,6 @@ pub struct Navigation {
     /// when few are open. Clamped to `[80.0, 280.0]` at load time.
     #[serde(default = "default_max_tab_width", rename = "max-tab-width")]
     pub max_tab_width: f32,
-    /// Windows only: replace the native title bar with the tab strip, which
-    /// then carries the window icon and the caption buttons as well. A lone
-    /// tab shows as a centred title there, whatever `hide-if-single` says,
-    /// since a title bar can't go away.
-    #[serde(default = "bool::default", rename = "tabs-in-titlebar")]
-    pub tabs_in_titlebar: bool,
 }
 
 impl Default for Navigation {
@@ -200,7 +194,6 @@ impl Default for Navigation {
             unfocused_split_fill: None,
             open_config_with_split: true,
             max_tab_width: default_max_tab_width(),
-            tabs_in_titlebar: false,
         }
     }
 }
@@ -229,25 +222,13 @@ impl Navigation {
         self.mode == NavigationMode::Tab
     }
 
-    /// Whether the tab strip takes the place of the native title bar.
-    #[inline]
-    pub fn titlebar_tabs(&self) -> bool {
-        cfg!(target_os = "windows") && self.tabs_in_titlebar && self.is_enabled()
-    }
-
-    /// Whether a lone tab takes the tab strip away with it.
-    #[inline]
-    pub fn hides_lone_tab(&self) -> bool {
-        self.hide_if_single && !self.titlebar_tabs()
-    }
-
     /// Whether the rio-rendered tab strip ("island") is actually painted
     /// this frame. Mirrors the gate at `island.rs:358` — input layers
     /// (click routing, cursor override) must agree with the renderer so
     /// the empty band over a hidden island doesn't intercept events.
     #[inline]
     pub fn island_visible(&self, num_tabs: usize) -> bool {
-        self.is_enabled() && !(self.hides_lone_tab() && num_tabs == 1)
+        self.is_enabled() && !(self.hide_if_single && num_tabs == 1)
     }
 
     /// Whether the top band is reserved as custom window chrome this

@@ -1,5 +1,5 @@
 // The window icon and caption buttons, for a window whose title bar has moved
-// into the client area (`navigation.tabs-in-titlebar`).
+// into the client area (`window.windows-use-unified-titlebar`).
 //
 // All of this is paint. What a click on any of it does is decided by the
 // system, from the hit test rio-window answers with `hit_layout`, so what's

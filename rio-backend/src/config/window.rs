@@ -208,6 +208,12 @@ pub struct Window {
     pub decorations: Decorations,
     #[serde(default = "bool::default", rename = "macos-use-unified-titlebar")]
     pub macos_use_unified_titlebar: bool,
+    /// Replace the native title bar with the tab strip, which then carries
+    /// the window icon and the caption buttons as well. Needs Tab navigation.
+    /// A lone tab shows as a centred title there, whatever `hide-if-single`
+    /// says, since a title bar can't go away.
+    #[serde(default = "bool::default", rename = "windows-use-unified-titlebar")]
+    pub windows_use_unified_titlebar: bool,
     #[serde(rename = "macos-use-shadow", default = "default_bool_true")]
     pub macos_use_shadow: bool,
     #[serde(rename = "macos-traffic-light-position-x", default = "Option::default")]
@@ -258,6 +264,7 @@ impl Default for Window {
             decorations: Decorations::default(),
             blur: WindowBlur::default(),
             macos_use_unified_titlebar: false,
+            windows_use_unified_titlebar: false,
             macos_use_shadow: true,
             macos_traffic_light_position_x: None,
             macos_traffic_light_position_y: None,

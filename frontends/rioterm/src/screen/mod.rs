@@ -152,7 +152,7 @@ impl Screen<'_> {
         let window_id = window_properties.window_id;
 
         let padding_y_top = padding_top_from_config(
-            &config.navigation,
+            &config.effective_navigation(),
             config.margin.top,
             1,
             config.window.macos_use_unified_titlebar,
@@ -523,7 +523,7 @@ impl Screen<'_> {
     ) {
         let num_tabs = self.ctx().len();
         let padding_y_top = padding_top_from_config(
-            &config.navigation,
+            &config.effective_navigation(),
             config.margin.top,
             num_tabs,
             config.window.macos_use_unified_titlebar,
@@ -561,7 +561,7 @@ impl Screen<'_> {
         if let Some(mut island) = old_island {
             island.update_colors(config.colors.tabs, config.colors.tabs_active);
             island.max_tab_width = config.navigation.max_tab_width;
-            island.hide_if_single = config.navigation.hides_lone_tab();
+            island.hide_if_single = self.renderer.navigation.hide_if_single;
             self.renderer.island = Some(island);
         }
 
