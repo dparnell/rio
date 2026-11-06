@@ -5,6 +5,49 @@
 
 use crate::font::FontLibrary;
 use rustc_hash::FxHashMap;
+use std::ops::Range;
+use unicode_segmentation::UnicodeSegmentation;
+
+/// Asks for emoji presentation of the character before it.
+const EMOJI_PRESENTATION: char = '\u{FE0F}';
+/// Turns the character before it into a keycap.
+const COMBINING_KEYCAP: char = '\u{20E3}';
+/// Stands in for a cluster that must come from the emoji font. `❤️` and `1️⃣`
+/// start with characters a text font usually has, and it would take them, but
+/// only an emoji font knows what to do with the rest of the cluster.
+const EMOJI_FONT_PROBE: char = '\u{1F600}';
+
+/// The character that decides which font a grapheme cluster comes from.
+fn font_char(cluster: &str) -> Option<char> {
+    if cluster
+        .chars()
+        .any(|ch| ch == EMOJI_PRESENTATION || ch == COMBINING_KEYCAP)
+    {
+        return Some(EMOJI_FONT_PROBE);
+    }
+    cluster.chars().next()
+}
+
+/// Split `text` into stretches that come from one font each. It only breaks
+/// between grapheme clusters, or a flag or a family emoji would fall apart.
+fn font_runs<F: Copy + PartialEq>(
+    text: &str,
+    mut font_for: impl FnMut(char) -> F,
+) -> Vec<(Range<usize>, F)> {
+    let mut runs: Vec<(Range<usize>, F)> = Vec::new();
+    for (start, cluster) in text.grapheme_indices(true) {
+        let Some(ch) = font_char(cluster) else {
+            continue;
+        };
+        let font = font_for(ch);
+        let end = start + cluster.len();
+        match runs.last_mut() {
+            Some((range, last)) if *last == font => range.end = end,
+            _ => runs.push((start..end, font)),
+        }
+    }
+    runs
+}
 
 // `pos` is **pixel-space top-left** of the glyph's text bounding box.
 // `bearings.x` shifts it right to the glyph bitmap's left edge;
@@ -80,6 +123,7 @@ struct ShapedRun {
     #[cfg(not(target_os = "macos"))]
     wght_variation: Option<f32>,
     ascent_px: i16,
+    is_emoji: bool,
     glyphs: Vec<ShapedGlyph>,
 }
 
@@ -247,12 +291,15 @@ impl Text {
         if text.is_empty() {
             return 0.0;
         }
-        let Some(shaped) = self.shape_for(text, opts) else {
-            return 0.0;
-        };
-        let width_px = shaped_width(&shaped);
-        self.emit_instances(x, y, &shaped, opts);
-        width_px / self.scale_factor
+        let runs = self.shape_runs(text, opts);
+        let baseline = shared_ascent(&runs);
+        let mut pen_x = x * self.scale_factor;
+        for run in &runs {
+            let shift = baseline - run.ascent_px as f32;
+            self.emit_instances(pen_x, y, shift, run, opts);
+            pen_x += shaped_width(run);
+        }
+        pen_x / self.scale_factor - x
     }
 
     /// Measure `text` under `opts` without recording a draw. Returns
@@ -261,23 +308,31 @@ impl Text {
         if text.is_empty() {
             return 0.0;
         }
-        self.shape_for(text, opts)
-            .map(|r| shaped_width(&r) / self.scale_factor)
-            .unwrap_or(0.0)
+        let width: f32 = self.shape_runs(text, opts).iter().map(shaped_width).sum();
+        width / self.scale_factor
     }
 
-    fn shape_for(&mut self, text: &str, opts: &DrawOpts) -> Option<ShapedRun> {
+    /// Shape `text`, one run for each font it needs.
+    fn shape_runs(&mut self, text: &str, opts: &DrawOpts) -> Vec<ShapedRun> {
+        if let Some(font_id) = opts.font_id {
+            let run = self.shape_run(text, font_id as u32, false, opts);
+            return run.into_iter().collect();
+        }
+
+        font_runs(text, |ch| self.resolve_font(ch, opts))
+            .into_iter()
+            .filter_map(|(range, (font_id, is_emoji))| {
+                self.shape_run(&text[range], font_id, is_emoji, opts)
+            })
+            .collect()
+    }
+
+    fn resolve_font(&mut self, ch: char, opts: &DrawOpts) -> (u32, bool) {
         use crate::{Attributes, SpanStyle, Stretch, Style as FontStyle, Weight};
 
-        let scaled = opts.font_size * self.scale_factor;
-        let size_bucket = (scaled * 4.0).round().clamp(0.0, u16::MAX as f32) as u16;
-        let size_u16 = scaled.round().clamp(1.0, u16::MAX as f32) as u16;
         let style_flags =
             (if opts.bold { 1u8 } else { 0 }) | (if opts.italic { 2u8 } else { 0 });
-
-        let first_ch = text.chars().next()?;
-        let (font_id, _is_emoji) = match self.font_resolve.entry((first_ch, style_flags))
-        {
+        match self.font_resolve.entry((ch, style_flags)) {
             std::collections::hash_map::Entry::Occupied(e) => *e.get(),
             std::collections::hash_map::Entry::Vacant(e) => {
                 let mut ss = SpanStyle::default();
@@ -292,14 +347,26 @@ impl Text {
                     FontStyle::Normal
                 };
                 ss.font_attrs = Attributes::new(Stretch::NORMAL, weight, fstyle);
-                let resolved =
-                    self.font_library.resolve_font_for_char(first_ch, &ss, None);
+                let resolved = self.font_library.resolve_font_for_char(ch, &ss, None);
                 let v = (resolved.0 as u32, resolved.1);
                 e.insert(v);
                 v
             }
-        };
-        let font_id = opts.font_id.map(|id| id as u32).unwrap_or(font_id);
+        }
+    }
+
+    fn shape_run(
+        &mut self,
+        text: &str,
+        font_id: u32,
+        is_emoji: bool,
+        opts: &DrawOpts,
+    ) -> Option<ShapedRun> {
+        let scaled = opts.font_size * self.scale_factor;
+        let size_bucket = (scaled * 4.0).round().clamp(0.0, u16::MAX as f32) as u16;
+        let size_u16 = scaled.round().clamp(1.0, u16::MAX as f32) as u16;
+        let style_flags =
+            (if opts.bold { 1u8 } else { 0 }) | (if opts.italic { 2u8 } else { 0 });
 
         let hash = shape_hash(font_id, size_bucket, style_flags, text);
         if let Some(entry) = self.shape_cache.get(&hash) {
@@ -435,6 +502,7 @@ impl Text {
             #[cfg(not(target_os = "macos"))]
             wght_variation,
             ascent_px,
+            is_emoji,
             glyphs,
         };
         self.shape_cache.insert(hash, run.clone());
@@ -443,10 +511,18 @@ impl Text {
 
     //  Emit pipeline — rasterize + push TextInstance
 
-    fn emit_instances(&mut self, x: f32, y: f32, run: &ShapedRun, opts: &DrawOpts) {
-        let scale = self.scale_factor;
-        let mut pen_x = x * scale;
-        let py = y * scale;
+    /// `pen_x` is in device pixels, where a run after the first picks up.
+    /// `y` is logical, and `shift` moves the run down onto the shared baseline
+    /// in device pixels.
+    fn emit_instances(
+        &mut self,
+        mut pen_x: f32,
+        y: f32,
+        shift: f32,
+        run: &ShapedRun,
+        opts: &DrawOpts,
+    ) {
+        let py = y * self.scale_factor + shift;
         let color = opts.color;
 
         for glyph in &run.glyphs {
@@ -1171,6 +1247,15 @@ impl Text {
 #[inline]
 fn shaped_width(run: &ShapedRun) -> f32 {
     run.glyphs.iter().map(|g| g.advance).sum()
+}
+
+/// The ascent every run of a line lines up on: the text's, so a title sits at
+/// the same height with an emoji in it as without one.
+fn shared_ascent(runs: &[ShapedRun]) -> f32 {
+    runs.iter()
+        .find(|run| !run.is_emoji)
+        .or(runs.first())
+        .map_or(0.0, |run| run.ascent_px as f32)
 }
 
 #[cfg(all(feature = "wgpu", not(target_os = "macos")))]
@@ -2008,5 +2093,102 @@ fn blit_text_color(
             let idx = buf_row + (dst_x as usize);
             buf[idx] = blend_premul_over(src, buf[idx]);
         }
+    }
+}
+
+#[cfg(test)]
+mod font_run_tests {
+    use super::*;
+
+    /// Everything non-ASCII from one font, and ASCII from another.
+    fn split(text: &str) -> Vec<(&str, bool)> {
+        font_runs(text, |ch| !ch.is_ascii())
+            .into_iter()
+            .map(|(range, emoji)| (&text[range], emoji))
+            .collect()
+    }
+
+    #[test]
+    fn plain_text_is_one_run() {
+        assert_eq!(split("build passed"), vec![("build passed", false)]);
+    }
+
+    #[test]
+    fn emoji_splits_from_the_text_on_either_side() {
+        assert_eq!(
+            split("a \u{1F389} b"),
+            vec![("a ", false), ("\u{1F389}", true), (" b", false)]
+        );
+        assert_eq!(
+            split("\u{1F389} build"),
+            vec![("\u{1F389}", true), (" build", false)]
+        );
+    }
+
+    #[test]
+    fn neighbours_in_the_same_font_share_a_run() {
+        assert_eq!(
+            split("\u{1F389}\u{1F680}"),
+            vec![("\u{1F389}\u{1F680}", true)]
+        );
+    }
+
+    #[test]
+    fn multi_codepoint_emoji_stay_whole() {
+        for emoji in [
+            "\u{1F468}\u{200D}\u{1F469}\u{200D}\u{1F467}", // family
+            "\u{1F1E6}\u{1F1FA}",                          // flag
+            "\u{1F44B}\u{1F3FD}",                          // skin tone
+        ] {
+            let text = format!("x{emoji}y");
+            assert_eq!(
+                split(&text),
+                vec![("x", false), (emoji, true), ("y", false)],
+                "{emoji}"
+            );
+        }
+    }
+
+    #[test]
+    fn emoji_presentation_goes_to_the_emoji_font() {
+        // Both start with a character a text font would happily take.
+        assert_eq!(font_char("\u{2764}\u{FE0F}"), Some(EMOJI_FONT_PROBE));
+        assert_eq!(font_char("1\u{FE0F}\u{20E3}"), Some(EMOJI_FONT_PROBE));
+        // Without the selector, it's up to whichever font has it.
+        assert_eq!(font_char("\u{2764}"), Some('\u{2764}'));
+    }
+
+    #[test]
+    fn nothing_is_lost_between_runs() {
+        let text = "tests \u{2705} deploy \u{1F680} done";
+        let joined: String = split(text).into_iter().map(|(run, _)| run).collect();
+        assert_eq!(joined, text);
+    }
+
+    fn run(ascent_px: i16, is_emoji: bool) -> ShapedRun {
+        ShapedRun {
+            font_id: 0,
+            size_u16: 12,
+            size_bucket: 48,
+            synthetic_bold: false,
+            synthetic_italic: false,
+            #[cfg(not(target_os = "macos"))]
+            wght_variation: None,
+            ascent_px,
+            is_emoji,
+            glyphs: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn text_sets_the_baseline() {
+        assert_eq!(shared_ascent(&[run(20, true), run(14, false)]), 14.0);
+        assert_eq!(shared_ascent(&[run(14, false), run(20, true)]), 14.0);
+    }
+
+    #[test]
+    fn a_lone_emoji_keeps_its_own_baseline() {
+        assert_eq!(shared_ascent(&[run(20, true)]), 20.0);
+        assert_eq!(shared_ascent(&[]), 0.0);
     }
 }

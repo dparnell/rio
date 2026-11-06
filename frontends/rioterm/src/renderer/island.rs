@@ -16,6 +16,7 @@ use rio_backend::sugarloaf::{Attributes, Sugarloaf};
 use rustc_hash::FxHashMap;
 use std::borrow::Cow;
 use std::time::{Duration, Instant};
+use unicode_segmentation::UnicodeSegmentation;
 
 pub const ISLAND_HEIGHT: f32 = 38.0;
 const PROGRESS_BAR_HEIGHT: f32 = 3.0;
@@ -137,6 +138,16 @@ fn fit_title_to_width<'a>(
     title: &'a str,
     max_width: f32,
 ) -> Cow<'a, str> {
+    // The per-character walk below can only overestimate a cluster like a
+    // family emoji, so go by the shaped width while the whole title fits.
+    let opts = DrawOpts {
+        font_size: TITLE_FONT_SIZE,
+        ..DrawOpts::default()
+    };
+    if sugarloaf.text_mut().measure(title, &opts) <= max_width {
+        return Cow::Borrowed(title);
+    }
+
     let attrs = Attributes::default();
     fit_title_with_widths(title, max_width, |c| {
         sugarloaf.char_advance(c, attrs, TITLE_FONT_SIZE)
@@ -156,11 +167,12 @@ fn fit_title_with_widths<'a>(
     // where to cut.
     let mut accumulated: f32 = 0.0;
     let mut truncate_ix: usize = 0;
-    for (ix, c) in title.char_indices() {
+    // By grapheme cluster, so the cut can't land inside a flag or family emoji.
+    for (ix, cluster) in title.grapheme_indices(true) {
         if accumulated + suffix_width <= max_width {
             truncate_ix = ix;
         }
-        accumulated += char_width(c);
+        accumulated += cluster.chars().map(&mut char_width).sum::<f32>();
         if accumulated > max_width {
             let mut out = String::with_capacity(truncate_ix + TITLE_ELLIPSIS.len_utf8());
             out.push_str(&title[..truncate_ix]);
@@ -2440,6 +2452,21 @@ mod tests {
     fn title_exact_fit_not_truncated() {
         // Title "abcd" = 4.0, budget 4.0 → fits exactly, no truncation.
         assert_eq!(fit_title_with_widths("abcd", 4.0, fixed_unit_width), "abcd");
+    }
+
+    #[test]
+    fn truncation_keeps_emoji_whole() {
+        let family = "\u{1F468}\u{200D}\u{1F469}\u{200D}\u{1F467}";
+        let title = format!("ab{family}cd");
+
+        // Room for the two letters and the ellipsis, but not the whole family.
+        assert_eq!(
+            fit_title_with_widths(&title, 4.0, fixed_unit_width),
+            format!("ab{TITLE_ELLIPSIS}")
+        );
+        // Room past it, and it comes through intact.
+        let fitted = fit_title_with_widths(&title, 8.0, fixed_unit_width);
+        assert!(fitted.contains(family), "{fitted}");
     }
 
     #[test]
