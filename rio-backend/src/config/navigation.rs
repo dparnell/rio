@@ -15,6 +15,106 @@ pub fn default_hide_if_single() -> bool {
 }
 
 #[inline]
+pub fn default_tab_radius() -> f32 {
+    6.0
+}
+
+/// Clamp `tab_radius` to `[0.0, 16.0]`. Past that a tab is a pill anyway, and
+/// each style trims the radius to fit its own shape.
+#[inline]
+pub fn clamp_tab_radius(v: f32) -> f32 {
+    if !v.is_finite() {
+        return default_tab_radius();
+    }
+    v.clamp(0.0, 16.0)
+}
+
+/// How the tabs are drawn.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum TabStyle {
+    /// Rounded tabs floating on the strip.
+    #[default]
+    #[serde(rename = "islands", alias = "Islands")]
+    Islands,
+    /// Plain titles, with a line under the active one.
+    #[serde(rename = "underline", alias = "Underline")]
+    Underline,
+    /// Flat cells, with a line along the top of the active one.
+    #[serde(rename = "top-accent", alias = "TopAccent")]
+    TopAccent,
+    /// The active tab joins the terminal below it.
+    #[serde(rename = "connected", alias = "Connected")]
+    Connected,
+    /// `Connected`, flaring out where the tab meets the terminal.
+    #[serde(rename = "browser-curve", alias = "BrowserCurve")]
+    BrowserCurve,
+    /// One continuous bar of arrows.
+    #[serde(rename = "powerline-angled", alias = "PowerlineAngled")]
+    PowerlineAngled,
+    /// One continuous bar of slanted segments.
+    #[serde(rename = "powerline-slanted", alias = "PowerlineSlanted")]
+    PowerlineSlanted,
+    /// One continuous bar of rounded segments.
+    #[serde(rename = "powerline-round", alias = "PowerlineRound")]
+    PowerlineRound,
+}
+
+impl TabStyle {
+    /// Whether the style needs a strip that differs from the window
+    /// background, for the active tab to stand out of.
+    #[inline]
+    pub fn has_own_strip(self) -> bool {
+        matches!(
+            self,
+            TabStyle::TopAccent | TabStyle::Connected | TabStyle::BrowserCurve
+        )
+    }
+
+    /// Whether each tab reaches over the next one, and so has to be painted
+    /// after it.
+    #[inline]
+    pub fn overlaps_next(self) -> bool {
+        matches!(self, TabStyle::PowerlineAngled | TabStyle::PowerlineRound)
+    }
+
+    #[inline]
+    pub fn is_powerline(self) -> bool {
+        matches!(
+            self,
+            TabStyle::PowerlineAngled
+                | TabStyle::PowerlineSlanted
+                | TabStyle::PowerlineRound
+        )
+    }
+}
+
+/// Which tabs show a close button.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum TabCloseButton {
+    #[default]
+    #[serde(rename = "active", alias = "Active")]
+    Active,
+    #[serde(rename = "hover", alias = "Hover")]
+    Hover,
+    #[serde(rename = "always", alias = "Always")]
+    Always,
+    #[serde(rename = "never", alias = "Never")]
+    Never,
+}
+
+/// How wide tabs are.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum TabSizing {
+    /// All the same width.
+    #[default]
+    #[serde(rename = "equal", alias = "Equal")]
+    Equal,
+    /// As wide as each title needs, up to `max-tab-width`.
+    #[serde(rename = "title", alias = "Title")]
+    Title,
+}
+
+#[inline]
 pub fn default_max_tab_width() -> f32 {
     240.0
 }
@@ -178,6 +278,16 @@ pub struct Navigation {
     /// when few are open. Clamped to `[80.0, 280.0]` at load time.
     #[serde(default = "default_max_tab_width", rename = "max-tab-width")]
     pub max_tab_width: f32,
+    #[serde(default = "TabStyle::default", rename = "tab-style")]
+    pub tab_style: TabStyle,
+    /// Corner radius of the tabs in logical pixels, for the styles that have
+    /// corners. Clamped to `[0.0, 16.0]`.
+    #[serde(default = "default_tab_radius", rename = "tab-radius")]
+    pub tab_radius: f32,
+    #[serde(default = "TabCloseButton::default", rename = "tab-close-button")]
+    pub tab_close_button: TabCloseButton,
+    #[serde(default = "TabSizing::default", rename = "tab-sizing")]
+    pub tab_sizing: TabSizing,
 }
 
 impl Default for Navigation {
@@ -194,6 +304,10 @@ impl Default for Navigation {
             unfocused_split_fill: None,
             open_config_with_split: true,
             max_tab_width: default_max_tab_width(),
+            tab_style: TabStyle::default(),
+            tab_radius: default_tab_radius(),
+            tab_close_button: TabCloseButton::default(),
+            tab_sizing: TabSizing::default(),
         }
     }
 }

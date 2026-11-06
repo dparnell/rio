@@ -104,6 +104,14 @@ pub struct PlatformNavigation {
     pub unfocused_split_opacity: Option<f32>,
     #[serde(default = "Option::default", rename = "max-tab-width")]
     pub max_tab_width: Option<f32>,
+    #[serde(default = "Option::default", rename = "tab-style")]
+    pub tab_style: Option<navigation::TabStyle>,
+    #[serde(default = "Option::default", rename = "tab-radius")]
+    pub tab_radius: Option<f32>,
+    #[serde(default = "Option::default", rename = "tab-close-button")]
+    pub tab_close_button: Option<navigation::TabCloseButton>,
+    #[serde(default = "Option::default", rename = "tab-sizing")]
+    pub tab_sizing: Option<navigation::TabSizing>,
     #[serde(
         default = "Option::default",
         deserialize_with = "crate::config::colors::deserialize_to_arr_opt",

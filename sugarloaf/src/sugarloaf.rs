@@ -707,6 +707,22 @@ impl Sugarloaf<'_> {
         self.renderer.polygon(&scaled, depth, color);
     }
 
+    /// `polygon`, on a chosen draw layer like the other primitives.
+    #[inline]
+    pub fn polygon_with_order(
+        &mut self,
+        points: &[(f32, f32)],
+        depth: f32,
+        color: [f32; 4],
+        order: u8,
+    ) {
+        let scale = self.state.style.scale_factor;
+        let scaled: Vec<(f32, f32)> =
+            points.iter().map(|(x, y)| (x * scale, y * scale)).collect();
+        self.renderer
+            .polygon_with_order(&scaled, depth, color, order);
+    }
+
     /// Draw a triangle.
     /// Coordinates are in logical pixels (scaled internally).
     #[inline]

@@ -122,6 +122,35 @@ pub struct Colors {
         rename = "tabs-active"
     )]
     pub tabs_active: ColorArray,
+    /// Fill of inactive tabs. Unset, each tab style picks its own.
+    #[serde(
+        default = "Option::default",
+        deserialize_with = "deserialize_to_arr_opt",
+        rename = "tabs-fill"
+    )]
+    pub tabs_fill: Option<ColorArray>,
+    /// Fill of the active tab. Unset, each tab style picks its own.
+    #[serde(
+        default = "Option::default",
+        deserialize_with = "deserialize_to_arr_opt",
+        rename = "tabs-active-fill"
+    )]
+    pub tabs_active_fill: Option<ColorArray>,
+    /// Background of the tab strip. Unset, it follows the window background.
+    #[serde(
+        default = "Option::default",
+        deserialize_with = "deserialize_to_arr_opt",
+        rename = "tabs-strip"
+    )]
+    pub tabs_strip: Option<ColorArray>,
+    /// Marks the active tab in the styles that use an accent. Unset, it's
+    /// `cursor`, which every theme already chooses to stand out.
+    #[serde(
+        default = "Option::default",
+        deserialize_with = "deserialize_to_arr_opt",
+        rename = "tabs-accent"
+    )]
+    pub tabs_accent: Option<ColorArray>,
     #[serde(default = "defaults::cursor", deserialize_with = "deserialize_to_arr")]
     pub cursor: ColorArray,
     #[serde(
@@ -317,6 +346,10 @@ impl Default for Colors {
             yellow: defaults::yellow(),
             tabs: defaults::tabs(),
             tabs_active: defaults::tabs_active(),
+            tabs_fill: None,
+            tabs_active_fill: None,
+            tabs_strip: None,
+            tabs_accent: None,
             cursor: defaults::cursor(),
             split: defaults::split(),
             split_active: defaults::split_active(),

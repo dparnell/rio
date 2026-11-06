@@ -14,6 +14,7 @@ pub mod helpers;
 pub mod island;
 pub mod scrollbar;
 pub mod search;
+pub mod tab_style;
 pub mod trail_cursor;
 pub mod utils;
 
@@ -227,12 +228,15 @@ impl Renderer {
         }
 
         let island = if config.navigation.is_enabled() {
-            Some(island::Island::new(
+            let mut island = island::Island::new(
                 named_colors.tabs,
                 named_colors.tabs_active,
                 config.navigation.hide_if_single,
                 config.navigation.max_tab_width,
-            ))
+            );
+            island.appearance =
+                tab_style::TabAppearance::from_config(&config.navigation, &config.colors);
+            Some(island)
         } else {
             None
         };
