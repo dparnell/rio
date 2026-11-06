@@ -9,7 +9,7 @@
 use super::tab_style::{self, over, Palette, TabAppearance, TabVisual};
 use crate::context::ContextManager;
 use crate::renderer::helpers::spring::Spring;
-use rio_backend::config::navigation::TabSizing;
+use rio_backend::config::navigation::{TabSizing, TabStyle};
 use rio_backend::event::{EventProxy, ProgressReport, ProgressState};
 use rio_backend::sugarloaf::text::DrawOpts;
 use rio_backend::sugarloaf::{Attributes, Sugarloaf};
@@ -273,6 +273,19 @@ pub(super) fn island_rect(slot_x: f32, tab_width: f32) -> (f32, f32, f32, f32, f
     let h = ISLAND_HEIGHT - TAB_INSET_Y * 2.0;
     let radius = TAB_RADIUS.min(w / 2.0).min(h / 2.0);
     (x, y, w, h, radius)
+}
+
+/// The room a title needs left around it in its tab, so the padding, and a
+/// title nudged off center, come out of the tab and not out of the title.
+#[inline]
+fn title_margins(style: TabStyle) -> f32 {
+    TAB_PADDING_X * 2.0 + tab_style::title_shift(style) * 2.0
+}
+
+/// The slot width a title of `text_width` wants.
+#[inline]
+fn title_tab_width(text_width: f32, style: TabStyle) -> f32 {
+    text_width + title_margins(style)
 }
 
 /// How much width a lone tab's title may occupy, in logical pixels.
@@ -1054,10 +1067,7 @@ impl Island {
             let max_text_width = if single {
                 single_title_budget(window_width, scale_factor, left_margin) - bell_width
             } else {
-                tab_width
-                    - TAB_PADDING_X * 2.0
-                    - bell_width
-                    - tab_style::title_shift(style) * 2.0
+                tab_width - title_margins(style) - bell_width
             }
             .max(0.0);
             let title = fit_title_to_width(sugarloaf, &raw_title, max_text_width);
@@ -1215,10 +1225,7 @@ impl Island {
 
             let raw_title = self.get_title_for_tab(context_manager, drag_idx);
             if !raw_title.is_empty() {
-                let max_text_width = (tab_width
-                    - TAB_PADDING_X * 2.0
-                    - tab_style::title_shift(style) * 2.0)
-                    .max(0.0);
+                let max_text_width = (tab_width - title_margins(style)).max(0.0);
                 let title = fit_title_to_width(sugarloaf, &raw_title, max_text_width);
                 let title_opts = DrawOpts {
                     font_size: TITLE_FONT_SIZE,
@@ -1297,7 +1304,8 @@ impl Island {
                 } else {
                     0.0
                 };
-                sugarloaf.text_mut().measure(&title, &opts) + bell + TAB_PADDING_X * 2.0
+                let text = sugarloaf.text_mut().measure(&title, &opts);
+                title_tab_width(text + bell, self.appearance.style)
             })
             .collect();
         self.title_widths = widths;
@@ -1827,9 +1835,23 @@ mod tests {
         assert_eq!(layout.reorder_target(1, 500.0), 1);
     }
 
+    /// A tab sized to its title has to leave the title all of the room it
+    /// asked for, or it comes out truncated with space to spare.
+    #[test]
+    fn a_title_fits_the_tab_sized_for_it() {
+        for style in [
+            TabStyle::Islands,
+            TabStyle::PowerlineAngled,
+            TabStyle::PowerlineSlanted,
+            TabStyle::PowerlineRound,
+        ] {
+            let width = title_tab_width(150.0, style);
+            assert_eq!(width - title_margins(style), 150.0, "{style:?}");
+        }
+    }
+
     #[test]
     fn text_stays_legible_on_a_chosen_fill() {
-        use rio_backend::config::navigation::TabStyle;
         let bg = [0.05, 0.05, 0.06, 1.0];
         let dim = [0.2, 0.2, 0.2, 1.0];
 
