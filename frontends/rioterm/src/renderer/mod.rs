@@ -14,6 +14,7 @@ pub mod helpers;
 pub mod island;
 pub mod scrollbar;
 pub mod search;
+pub mod tab_style;
 #[cfg(target_os = "windows")]
 pub mod titlebar;
 pub mod trail_cursor;
@@ -231,12 +232,15 @@ impl Renderer {
         }
 
         let island = if config.navigation.is_enabled() {
-            Some(island::Island::new(
+            let mut island = island::Island::new(
                 named_colors.tabs,
                 named_colors.tabs_active,
                 config.effective_navigation().hide_if_single,
                 config.navigation.max_tab_width,
-            ))
+            );
+            island.appearance =
+                tab_style::TabAppearance::from_config(&config.navigation, &config.colors);
+            Some(island)
         } else {
             None
         };
@@ -772,12 +776,17 @@ impl Renderer {
                 island_bg,
             );
 
+            // The caption buttons sit on the strip, which a tab style may tint.
+            #[cfg(target_os = "windows")]
+            let strip_bg = tab_style::Palette::new(&island.appearance, island_bg)
+                .strip
+                .unwrap_or(island_bg);
             #[cfg(target_os = "windows")]
             self.titlebar.render(
                 sugarloaf,
                 window_size.width,
                 scale_factor,
-                island_bg,
+                strip_bg,
                 self.is_window_focused,
             );
         }

@@ -678,9 +678,26 @@ impl BatchManager {
         depth: f32,
         color: [f32; 4],
     ) {
+        self.add_triangle_with_order(x1, y1, x2, y2, x3, y3, depth, color, 0);
+    }
+
+    #[inline]
+    #[allow(clippy::too_many_arguments)]
+    fn add_triangle_with_order(
+        &mut self,
+        x1: f32,
+        y1: f32,
+        x2: f32,
+        y2: f32,
+        x3: f32,
+        y3: f32,
+        depth: f32,
+        color: [f32; 4],
+        order: u8,
+    ) {
         let subpix = true;
         for batch in self.active.iter_mut() {
-            if batch.order == 0
+            if batch.order == order
                 && batch.add_triangle(
                     x1, y1, x2, y2, x3, y3, color, depth, None, None, subpix,
                 )
@@ -688,7 +705,7 @@ impl BatchManager {
                 return;
             }
         }
-        self.alloc_batch(0)
+        self.alloc_batch(order)
             .add_triangle(x1, y1, x2, y2, x3, y3, color, depth, None, None, subpix);
     }
 
@@ -770,6 +787,16 @@ impl BatchManager {
         depth: f32,
         color: [f32; 4],
     ) {
+        self.add_antialiased_polygon_with_order(points, depth, color, 0);
+    }
+
+    pub fn add_antialiased_polygon_with_order(
+        &mut self,
+        points: &[(f32, f32)],
+        depth: f32,
+        color: [f32; 4],
+        order: u8,
+    ) {
         // Need at least 3 points to form a polygon
         if points.len() < 3 {
             return;
@@ -786,7 +813,9 @@ impl BatchManager {
             let p3 = points[i + 1];
 
             // Add triangle with correct subpixel rendering
-            self.add_triangle(p1.0, p1.1, p2.0, p2.1, p3.0, p3.1, depth, color);
+            self.add_triangle_with_order(
+                p1.0, p1.1, p2.0, p2.1, p3.0, p3.1, depth, color, order,
+            );
         }
 
         // Now add anti-aliasing at the edges
@@ -827,12 +856,12 @@ impl BatchManager {
                     let q4 = (p1.0 + norm_x * edge_width, p1.1 + norm_y * edge_width);
 
                     // Draw the quad as two triangles with transparency for anti-aliasing
-                    self.add_triangle(
-                        q1.0, q1.1, q2.0, q2.1, q3.0, q3.1, depth, edge_color,
+                    self.add_triangle_with_order(
+                        q1.0, q1.1, q2.0, q2.1, q3.0, q3.1, depth, edge_color, order,
                     );
 
-                    self.add_triangle(
-                        q1.0, q1.1, q3.0, q3.1, q4.0, q4.1, depth, edge_color,
+                    self.add_triangle_with_order(
+                        q1.0, q1.1, q3.0, q3.1, q4.0, q4.1, depth, edge_color, order,
                     );
                 }
             }

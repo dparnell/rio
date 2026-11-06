@@ -570,6 +570,10 @@ impl Screen<'_> {
             island.update_colors(config.colors.tabs, config.colors.tabs_active);
             island.max_tab_width = config.navigation.max_tab_width;
             island.hide_if_single = self.renderer.navigation.hide_if_single;
+            island.appearance = crate::renderer::tab_style::TabAppearance::from_config(
+                &config.navigation,
+                &config.colors,
+            );
             self.renderer.island = Some(island);
         }
 
@@ -1715,8 +1719,9 @@ impl Screen<'_> {
                             old_index,
                             new_index,
                         );
-                        let tab_width =
-                            self.island_tab_layout(self.context_manager.len()).tab_width;
+                        let tab_width = self
+                            .island_tab_layout(self.context_manager.len())
+                            .slot_width(old_index);
                         if let Some(ref mut island) = self.renderer.island {
                             island.remap_tab_swap(old_index, new_index, tab_width);
                         }
@@ -1733,8 +1738,9 @@ impl Screen<'_> {
                             old_index,
                             new_index,
                         );
-                        let tab_width =
-                            self.island_tab_layout(self.context_manager.len()).tab_width;
+                        let tab_width = self
+                            .island_tab_layout(self.context_manager.len())
+                            .slot_width(old_index);
                         if let Some(ref mut island) = self.renderer.island {
                             island.remap_tab_swap(old_index, new_index, tab_width);
                         }
@@ -1931,6 +1937,32 @@ impl Screen<'_> {
         } else {
             self.close_tab(clipboard);
         }
+    }
+
+    /// Close a tab, leaving the one you're on as it was if it's another.
+    fn close_tab_at(&mut self, tab: usize, clipboard: &mut Clipboard) {
+        let current = self.context_manager.current_index();
+        if tab == current {
+            self.close_tab(clipboard);
+            return;
+        }
+
+        self.context_manager.set_current(tab);
+        self.context_manager
+            .switch_context_visibility(&mut self.sugarloaf, current, tab);
+        self.close_tab(clipboard);
+
+        let keep = if tab < current { current - 1 } else { current };
+        let landed = self.context_manager.current_index();
+        if landed != keep {
+            self.context_manager.set_current(keep);
+            self.context_manager.switch_context_visibility(
+                &mut self.sugarloaf,
+                landed,
+                keep,
+            );
+        }
+        self.mark_dirty();
     }
 
     pub fn close_tab(&mut self, clipboard: &mut Clipboard) {
@@ -3009,25 +3041,20 @@ impl Screen<'_> {
 
     #[inline]
     fn island_tab_layout(&self, num_tabs: usize) -> TabStripLayout {
-        let max_tab_width = self
-            .renderer
-            .island
-            .as_ref()
-            .map(|island| island.max_tab_width)
-            .unwrap_or_else(rio_backend::config::navigation::default_max_tab_width);
-        let insets = self
-            .renderer
-            .island
-            .as_ref()
-            .map(|island| island.insets)
-            .unwrap_or_default();
-        island::tab_strip_layout(
-            self.sugarloaf.window_size().width,
-            self.sugarloaf.scale_factor(),
-            num_tabs,
-            max_tab_width,
-            insets,
-        )
+        let window_width = self.sugarloaf.window_size().width;
+        let scale_factor = self.sugarloaf.scale_factor();
+        match self.renderer.island.as_ref() {
+            Some(island) => island.strip_layout(window_width, scale_factor, num_tabs),
+            None => island::tab_strip_layout(
+                window_width,
+                scale_factor,
+                num_tabs,
+                rio_backend::config::navigation::default_max_tab_width(),
+                island::StripInsets::default(),
+                0.0,
+                None,
+            ),
+        }
     }
 
     /// Bring the title bar in line with the window before a frame: it comes
@@ -3119,12 +3146,11 @@ impl Screen<'_> {
         })
     }
 
-    fn apply_close_hover(&mut self, hover: bool) -> bool {
-        let changed = self
-            .renderer
-            .island
-            .as_mut()
-            .is_some_and(|island| island.set_close_hover(hover));
+    fn apply_close_hover(&mut self, tab: Option<usize>, hover: bool) -> bool {
+        let changed = self.renderer.island.as_mut().is_some_and(|island| {
+            let hovered_changed = island.set_hovered_tab(tab);
+            island.set_close_hover(hover) || hovered_changed
+        });
         if changed {
             self.mark_dirty();
         }
@@ -3135,21 +3161,34 @@ impl Screen<'_> {
         let num_tabs = self.context_manager.len();
         let scale_factor = self.sugarloaf.scale_factor();
 
-        let hovering = num_tabs > 1
+        let in_strip = num_tabs > 1
             && self.renderer.navigation.island_visible(num_tabs)
-            && mouse_y <= (ISLAND_HEIGHT * scale_factor) as f64
-            && island::close_button_hit(
-                &self.island_tab_layout(num_tabs),
-                self.context_manager.current_index(),
-                mouse_x as f32 / scale_factor,
-            );
+            && mouse_y <= (ISLAND_HEIGHT * scale_factor) as f64;
 
-        self.apply_close_hover(hovering)
+        let x = mouse_x as f32 / scale_factor;
+        let layout = self.island_tab_layout(num_tabs);
+        let tab = in_strip.then(|| layout.tab_at(x)).flatten();
+
+        let current = self.context_manager.current_index();
+        let hovering = tab.is_some_and(|tab| {
+            self.close_button_shown(tab, current)
+                && island::close_button_hit(&layout, tab, x)
+        });
+
+        self.apply_close_hover(tab, hovering)
+    }
+
+    /// Whether `tab` shows a close button with the cursor over it.
+    fn close_button_shown(&self, tab: usize, current: usize) -> bool {
+        self.renderer
+            .island
+            .as_ref()
+            .is_some_and(|island| island.close_visible(tab, current, Some(tab)))
     }
 
     #[inline]
     pub fn clear_close_button_hover(&mut self) -> bool {
-        self.apply_close_hover(false)
+        self.apply_close_hover(None, false)
     }
 
     pub fn handle_island_click(
@@ -3260,9 +3299,8 @@ impl Screen<'_> {
             return true;
         }
 
-        // `.min` guards the float edge where x_in_tabs / tab_width
-        // lands exactly on num_tabs despite x_in_tabs < tabs_width.
-        let clicked_tab = ((x_in_tabs / layout.tab_width) as usize).min(num_tabs - 1);
+        // A lone tab's title spans the strip, well past the tab's own slot.
+        let clicked_tab = layout.tab_at(mouse_x_unscaled).unwrap_or(num_tabs - 1);
 
         #[cfg(target_os = "macos")]
         if !is_right_click && self.modifiers.state().super_key() {
@@ -3292,12 +3330,12 @@ impl Screen<'_> {
             return true;
         }
 
-        if clicked_tab == self.context_manager.current_index()
+        if self.close_button_shown(clicked_tab, self.context_manager.current_index())
             && island::close_button_hit(&layout, clicked_tab, mouse_x_unscaled)
         {
             self.stop_hint_mode_if_active();
             self.last_close_press = Some((std::time::Instant::now(), mouse_x_unscaled));
-            self.close_tab(clipboard);
+            self.close_tab_at(clicked_tab, clipboard);
             return true;
         }
 
@@ -3330,7 +3368,7 @@ impl Screen<'_> {
         let can_reorder = true;
         if num_tabs > 1 && can_reorder {
             if let Some(ref mut island) = self.renderer.island {
-                let tab_left = layout.left_margin + clicked_tab as f32 * layout.tab_width;
+                let tab_left = layout.slot_x(clicked_tab);
                 island.start_drag(
                     clicked_tab,
                     mouse_x_unscaled - tab_left,
@@ -3378,8 +3416,7 @@ impl Screen<'_> {
             return;
         }
 
-        let target = (((center - layout.left_margin) / layout.tab_width) as usize)
-            .min(num_tabs - 1);
+        let target = layout.reorder_target(old_index, center);
         if target != old_index {
             self.context_manager.move_current_tab_to(target);
             let new_index = self.context_manager.current_index();
@@ -3389,7 +3426,7 @@ impl Screen<'_> {
                 new_index,
             );
             if let Some(ref mut island) = self.renderer.island {
-                island.remap_tab_move(old_index, new_index, layout.tab_width);
+                island.remap_tab_move(old_index, new_index, layout.slot_width(old_index));
             }
         }
         self.mark_dirty();

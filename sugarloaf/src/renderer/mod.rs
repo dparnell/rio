@@ -1799,6 +1799,19 @@ impl Renderer {
     }
 
     #[inline]
+    pub fn polygon_with_order(
+        &mut self,
+        points: &[(f32, f32)],
+        depth: f32,
+        color: [f32; 4],
+        order: u8,
+    ) {
+        self.comp
+            .batches
+            .add_antialiased_polygon_with_order(points, depth, color, order);
+    }
+
+    #[inline]
     #[allow(clippy::too_many_arguments)]
     pub fn triangle(
         &mut self,

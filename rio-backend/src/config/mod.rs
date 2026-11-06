@@ -703,6 +703,18 @@ impl Config {
             if let Some(max_tab_width) = navigation_overwrite.max_tab_width {
                 self.navigation.max_tab_width = max_tab_width;
             }
+            if let Some(tab_style) = navigation_overwrite.tab_style {
+                self.navigation.tab_style = tab_style;
+            }
+            if let Some(tab_radius) = navigation_overwrite.tab_radius {
+                self.navigation.tab_radius = tab_radius;
+            }
+            if let Some(tab_close_button) = navigation_overwrite.tab_close_button {
+                self.navigation.tab_close_button = tab_close_button;
+            }
+            if let Some(tab_sizing) = navigation_overwrite.tab_sizing {
+                self.navigation.tab_sizing = tab_sizing;
+            }
         }
 
         // Clamp after platform merge so both the base and any override go
